@@ -1,0 +1,47 @@
+# Tolerances and thresholds used by app/pipeline/validate. Amounts are in the
+# invoice currency. "pct" values are fractions (0.005 = 0.5%).
+
+tolerance:
+  line_math_abs: 0.02
+  line_math_pct: 0.005
+  line_math_error_pct: 0.01
+  subtotal_abs: 0.02
+  subtotal_per_line: 0.01
+  total_abs: 0.02
+  total_pct: 0.005
+  tax_lines_abs: 0.01
+  tax_lines_pct: 0.005
+
+tax_rate:
+  max_plausible: 0.35
+
+amount:
+  absurd_total: 100000000
+
+date:
+  min_year: 2000
+  future_days: 3
+
+confidence:
+  key_field_min: 0.78
+  ocr_page_min: 0.65
+
+grounding:
+  quote_match_min: 0.9
+
+duplicates:
+  supplier_trigram_min: 0.85
+  date_window_days: 3
+
+routing:
+  max_warnings: 1
+
+reconcile:
+  supplier_fuzzy_min: 85
+  date_window_days: 6
+  # a payment should match its invoice to the cent
+  amount_abs: 0.02
+  amount_pct: 0.0
+
+key_fields: [invoice_number, invoice_date, supplier_name, total, currency]
+optional_fields: [customer_name, subtotal, tax]
