@@ -1,0 +1,26 @@
+{
+  "name": "docintel-web",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "5.106.1",
+    "clsx": "2.1.1",
+    "lucide-react": "1.69.0",
+    "next": "16.4.5",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.4",
+    "@types/node": "22.19.1",
+    "@types/react": "19.3.0",
+    "tailwindcss": "4.3.4",
+    "typescript": "5.9.3"
+  }
+}
