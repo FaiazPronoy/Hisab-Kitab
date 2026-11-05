@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     llm_rate_per_minute: int = 60
 
     max_upload_mb: int = 60
+    upload_rate_limit: str = "30/minute"
     max_files_per_request: int = 50
     max_pages: int = 1500
     max_sheet_rows: int = 200_000

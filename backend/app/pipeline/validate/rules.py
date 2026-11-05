@@ -32,7 +32,7 @@ def check(inv: dict, meta: dict, items: list[dict], tax_lines: list[dict], flags
                 continue  # reported once as GROUNDING_FAILED below
             out.append(F("REQ_MISSING", "error", f, f"{f.replace('_', ' ')} is missing ({reason or 'not found'})."))
     for f in cfg["optional_fields"]:
-        if inv.get(f) in (None, ""):
+        if inv.get(f) in (None, "") and (meta.get(f) or {}).get("null_reason") != "not_in_sheet":
             out.append(F("OPT_MISSING", "warning", f, f"{f.replace('_', ' ')} is not on the document."))
 
     for f, m in meta.items():
@@ -51,10 +51,15 @@ def check(inv: dict, meta: dict, items: list[dict], tax_lines: list[dict], flags
             out.append(F("LINE_MATH", sev, f"line_items[{i}].amount", f"Line {i + 1}: quantity x unit price does not match the amount.", exp, a))
 
     sub, tax, total = inv.get("subtotal"), inv.get("tax"), inv.get("total")
-    disc, ship = inv.get("discount") or ZERO, inv.get("shipping") or ZERO
+    # discounts are often printed with a minus sign; it is always taken off
+    disc, ship = abs(inv.get("discount") or ZERO), inv.get("shipping") or ZERO
+    if credit:
+        disc = -disc  # on a credit note the discount shrinks a negative amount
     amounts = [_d(it.get("amount")) for it in items]
     if sub is not None and amounts and all(a is not None for a in amounts):
         s = sum(amounts, ZERO)
+        if credit and s > 0 > sub:
+            s = -s  # credit notes list positive lines under a negative subtotal
         if abs(s - sub) > max(Decimal(str(t["subtotal_abs"])), Decimal(str(t["subtotal_per_line"])) * len(amounts)):
             out.append(F("SUBTOTAL_SUM", "error", "subtotal", "Line items do not add up to the subtotal.", s, sub))
 
@@ -65,12 +70,14 @@ def check(inv: dict, meta: dict, items: list[dict], tax_lines: list[dict], flags
     if total is not None and sub is not None:
         tax_used = tax if tax is not None else (tax_sum or ZERO)
         exp = sub - disc + ship + tax_used
-        allowed = tol(total, t["total_abs"], t["total_pct"])
+        allowed = max(Decimal(str(t["total_abs"])), Decimal(str(t["total_per_line"])) * (len(items) + len(tax_lines)))
         if abs(exp - total) > allowed:
             if abs((sub - disc + ship) - total) <= allowed and tax_used:
                 out.append(F("TAX_INCLUSIVE", "info", "total", "Totals only reconcile if the prices already include tax."))
             else:
-                out.append(F("TOTAL_MATH", "error", "total", "Subtotal, discount, shipping and tax do not add up to the total.", exp, total))
+                msg = ("Subtotal, discount, shipping and tax do not add up to the total." if tax is not None or tax_sum is not None
+                       else "The total does not match the printed amounts and no tax is printed; a tax line may be missing.")
+                out.append(F("TOTAL_MATH", "error", "total", msg, exp, total))
         if tax is not None and sub > 0:
             rate = tax / sub
             if rate < 0 or rate > Decimal(str(cfg["tax_rate"]["max_plausible"])):

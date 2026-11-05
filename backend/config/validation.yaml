@@ -1,16 +1,19 @@
 # Tolerances and thresholds used by app/pipeline/validate. Amounts are in the
 # invoice currency. "pct" values are fractions (0.005 = 0.5%).
 
+# Rounding can only add about one cent per printed line, so tolerances are
+# counted in cents per line, not as a percentage of the amount: 0.5% of a
+# 40,000 total would hide a 100.00 error.
 tolerance:
   line_math_abs: 0.02
-  line_math_pct: 0.005
+  line_math_pct: 0.0005
   line_math_error_pct: 0.01
   subtotal_abs: 0.02
   subtotal_per_line: 0.01
-  total_abs: 0.02
-  total_pct: 0.005
-  tax_lines_abs: 0.01
-  tax_lines_pct: 0.005
+  total_abs: 0.05
+  total_per_line: 0.01
+  tax_lines_abs: 0.02
+  tax_lines_pct: 0.0
 
 tax_rate:
   max_plausible: 0.35

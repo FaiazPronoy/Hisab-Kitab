@@ -1,11 +1,6 @@
 name: docintel
 
 x-backend: &backend
-  build:
-    context: .
-    dockerfile: backend/Dockerfile
-    args:
-      DEV: "1"
   image: docintel-backend
   env_file: .env
   volumes:
@@ -41,6 +36,11 @@ services:
 
   api:
     <<: *backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        DEV: "1"
     ports:
       - "8000:8000"
     healthcheck:
@@ -50,6 +50,7 @@ services:
 
   worker:
     <<: *backend
+    pull_policy: never
     command: celery -A app.workers.celery_app worker -Q ingest,ocr,ocr_heavy,extract,index --concurrency=2 --loglevel=INFO
     depends_on:
       api:

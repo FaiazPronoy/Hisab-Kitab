@@ -279,7 +279,8 @@ def _invoice_from_record(db, doc, sh, rec):
             norm = None if raw is None else str(raw).strip()
         fields[f] = {"value_raw": None if raw is None else str(raw), "value_norm": norm, "quote": None if raw is None else str(raw),
                      "line_id": f"S{sh.index}:R{rec['_row']}", "confidence": 1.0 if norm is not None else 0.0,
-                     "null_reason": None if norm is not None else "not_on_document", "verified": norm is not None,
+                     "null_reason": None if norm is not None else ("not_on_document" if f in sh.columns else "not_in_sheet"),
+                     "verified": norm is not None,
                      "source": "sheet", "bbox": None, "page": None}
     result = {"doc_type": "invoice", "fields": fields, "line_items": [], "tax_lines": [], "flags": flags,
               "overall_confidence": 1.0}
@@ -393,6 +394,16 @@ def revalidate(db, inv: Invoice, pages_failed: int = 0):
                                 related_invoice_id=f.get("related_invoice_id")))
     if inv.status != "approved":
         inv.status = routing.route(findings, meta, pages_failed, inv.flags or [])
+    # a duplicate concerns both invoices, whichever arrived first
+    for f in findings:
+        other = db.get(Invoice, f["related_invoice_id"]) if f.get("related_invoice_id") else None
+        if other is None or any(v.rule_code == f["rule_code"] and v.related_invoice_id == inv.id for v in other.findings):
+            continue
+        db.add(ValidationResult(invoice_id=other.id, rule_code=f["rule_code"], severity=f["severity"], field=f["field"],
+                                message=f["message"], expected=inv.invoice_number, actual=other.invoice_number,
+                                related_invoice_id=inv.id))
+        if other.status != "approved":
+            other.status = "needs_review"
     db.flush()
     return findings
 

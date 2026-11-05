@@ -59,6 +59,8 @@ def match_ledger(invoices: list[dict], ledger: list[dict]) -> list[dict]:
             used_inv.add(cands[0])
             out += compare_pair(invoices[cands[0]], row, cfg)
         elif len(cands) > 1:
+            # reported once as ambiguous; the candidates are not also "missing"
+            used_inv.update(cands)
             out.append(item("ambiguous", "warning", None, row, "invoice_number"))
         else:
             leftovers.append(row)

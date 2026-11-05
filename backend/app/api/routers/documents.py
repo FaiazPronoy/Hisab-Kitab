@@ -30,7 +30,7 @@ def enqueue(document_id: str):
 
 @router.post("/documents", status_code=202)
 # uploads are the expensive call, so they get a tighter limit than the default
-@limiter.limit("30/minute")
+@limiter.limit(lambda: get_settings().upload_rate_limit)
 async def upload(request: Request, files: list[UploadFile] = File(...), db: Session = Depends(get_db),
                  idempotency_key: str | None = Header(None)):
     s = get_settings()

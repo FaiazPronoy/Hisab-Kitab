@@ -20,7 +20,7 @@ class RunIn(BaseModel):
 
 def _rec(i: Invoice) -> dict:
     ref = {"invoice_id": str(i.id), "document_id": str(i.document_id), "page": i.page_start,
-           "sheet": i.sheet_name, "row": i.row_index}
+           "sheet": i.sheet_name, "row": i.row_index, "invoice_number": i.invoice_number}
     return {"invoice_number": i.invoice_number, "invoice_number_norm": i.invoice_number_norm, "supplier_name": i.supplier_name,
             "supplier_norm": i.supplier_norm, "customer_name": i.customer_name, "invoice_date": i.invoice_date,
             "currency": i.currency, "subtotal": i.subtotal, "tax": i.tax, "total": i.total, "ref": ref}

@@ -32,7 +32,10 @@ def find(db, inv: Invoice) -> list[dict]:
     cfg = validation_config()
     if not inv.supplier_norm and not inv.invoice_number_norm:
         return []
-    q = select(Invoice).where(Invoice.id != inv.id)
+    # ledger rows are payment records, compared to invoices by reconciliation, not here
+    is_row = inv.row_index is not None
+    q = select(Invoice).where(Invoice.id != inv.id,
+                              Invoice.row_index.is_not(None) if is_row else Invoice.row_index.is_(None))
     conds = []
     if inv.invoice_number_norm:
         conds.append(Invoice.invoice_number_norm == inv.invoice_number_norm)

@@ -33,7 +33,8 @@ class RapidEngine(OcrEngine):
             return []
         out = []
         for box, txt, score in zip(boxes, res.txts, res.scores):
-            xs, ys = [p[0] for p in box], [p[1] for p in box]
+            # numpy floats do not serialize to JSON, so convert here
+            xs, ys = [float(p[0]) for p in box], [float(p[1]) for p in box]
             out.append({"t": str(txt), "x0": min(xs) / w, "y0": min(ys) / h,
                         "x1": max(xs) / w, "y1": max(ys) / h, "c": round(float(score), 3)})
         return out

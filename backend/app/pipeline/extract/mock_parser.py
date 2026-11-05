@@ -15,7 +15,7 @@ LABELS = {
     "due_date": r"due\s*date|payment\s+due|due",
     "po_number": r"p\.?o\.?\s*(?:no\.?|number|#)?|purchase\s+order",
     "subtotal": r"sub[\s-]?total|net\s+amount|total\s+before\s+tax",
-    "tax": r"(?:total\s+)?(?:tax|vat|gst)(?:\s*\(?\d+(?:[.,]\d+)?\s*%\)?)?(?:\s+amount)?",
+    "tax": r"(?:total\s+)?(?:tax|vat|gst|mwst|ust)(?:\s*\(?\d+(?:[.,]\d+)?\s*%\)?)?(?:\s+amount)?",
     "discount": r"discount",
     "shipping": r"shipping|delivery|freight",
     "total": r"(?:grand\s+)?total(?:\s+due)?|amount\s+due|balance\s+due|total\s+amount",
@@ -95,7 +95,8 @@ def parse_invoice(doc: str) -> InvoiceOut:
         for lid, text in lines[:4]:
             seg = _segments(text)[0]
             if not re.search(r"invoice|receipt|credit note|page", seg, re.I) and len(seg) > 2:
-                out["supplier_name"] = _field(seg, lid, seg, 0.6)
+                # the issuer's name is usually the first line that is not a title
+                out["supplier_name"] = _field(seg, lid, seg, 0.8)
                 break
     ccy = None
     for lid, text in lines:

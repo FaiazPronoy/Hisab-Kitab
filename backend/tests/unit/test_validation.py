@@ -37,8 +37,9 @@ def test_clean_invoice_has_no_findings_and_auto_validates():
 
 
 @pytest.mark.parametrize("total,expect", [
-    (D("110.02"), []),            # inside max(0.02, 0.5%)
-    (D("110.55"), []),            # 0.5% of 110.55 = 0.55
+    (D("110.02"), []),            # inside max(0.05, 0.01 per line)
+    (D("110.05"), []),
+    (D("110.10"), ["TOTAL_MATH"]),
     (D("111.00"), ["TOTAL_MATH"]),
 ])
 def test_total_math_tolerance(total, expect):
@@ -50,7 +51,7 @@ def test_tax_inclusive_is_info_not_error():
     assert codes(f) == ["TAX_INCLUSIVE"] and f[0]["severity"] == "info"
 
 
-@pytest.mark.parametrize("amount,sev", [(D("50.40"), "warning"), (D("52.00"), "error"), (D("50.10"), None)])
+@pytest.mark.parametrize("amount,sev", [(D("50.40"), "warning"), (D("52.00"), "error"), (D("50.02"), None)])
 def test_line_math(amount, sev):
     items = [{"quantity": D("2"), "unit_price": D("25.00"), "amount": amount}, ITEMS[1]]
     f = [x for x in check(inv(subtotal=amount + D("50.00"), total=amount + D("60.00")), OK_META, items, [], [], TODAY)
@@ -77,6 +78,12 @@ def test_dates_amounts_and_flags():
               ["ambiguous_currency", "suspicious_content"], TODAY)
     c = codes(f)
     assert {"DATE_SANITY", "AMOUNT_SANITY", "CURRENCY", "SUSPICIOUS_CONTENT"} <= set(c)
+
+
+def test_missing_tax_shows_up_as_an_unexplained_total():
+    f = [x for x in check(inv(tax=None, total=D("110")), OK_META, ITEMS, [], [], TODAY) if x["rule_code"] == "TOTAL_MATH"]
+    assert f and "tax line may be missing" in f[0]["message"]
+    assert "TOTAL_MATH" not in codes(check(inv(tax=None, total=D("100")), OK_META, ITEMS, [], [], TODAY))
 
 
 def test_credit_note_negative_total_is_fine():
