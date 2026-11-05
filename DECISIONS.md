@@ -44,10 +44,13 @@ Number format is voted over every amount on the document (`1.234,56` versus `1,2
 
 | Check | Tolerance | Why |
 | --- | --- | --- |
-| Line maths | max(0.02, 0.5%) | unit prices are often rounded to 2 places on the document |
+| Line maths | max(0.02, 0.05%) | unit prices are often rounded to 2 places on the document |
 | Subtotal | max(0.02, 0.01 per line) | each line can carry one cent of rounding |
-| Total | max(0.02, 0.5% of total) | tax rounding per line versus on the total |
-| Tax lines | max(0.01, 0.5%) | |
+| Total | max(0.05, 0.01 per line and tax line) | tax rounded per line versus on the total |
+| Tax lines | 0.02 | |
+| Ledger amount | 0.02 | a payment should match its invoice to the cent |
+
+The first version used 0.5% of the total. The evaluation showed why that is wrong: a planted error of 100.00 on a 42,159.91 invoice is 0.24%, inside the tolerance, and none of the four planted wrong totals in the test split was caught. Rounding adds cents per line, not a percentage of the amount, so the tolerances are now counted in cents per line.
 
 A total that only reconciles when prices already include tax is an `info` finding, not an error.
 
