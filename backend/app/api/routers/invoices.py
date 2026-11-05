@@ -1,0 +1,195 @@
+import csv
+import io
+import re
+from datetime import date
+from decimal import Decimal, InvalidOperation
+
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from sqlalchemy import case, func, select
+from sqlalchemy.orm import Session
+
+from app.api.serialize import inv_detail, inv_summary
+from app.db.models import Correction, ExtractedField, Invoice, ValidationResult
+from app.db.session import get_db
+from app.pipeline.extract.normalize import norm_invoice_number, norm_supplier
+from app.pipeline.process import revalidate
+
+router = APIRouter(tags=["invoices"])
+MONEY = {"subtotal", "tax", "discount", "shipping", "total"}
+DATES = {"invoice_date", "due_date"}
+TEXT = {"invoice_number", "supplier_name", "customer_name", "po_number", "currency"}
+ITEM = re.compile(r"^line_items\[(\d+)\]\.(description|quantity|unit_price|amount)$")
+
+
+def _inv(db, invoice_id) -> Invoice:
+    inv = db.get(Invoice, invoice_id)
+    if not inv:
+        raise HTTPException(404, "Invoice not found.")
+    return inv
+
+
+@router.get("/invoices")
+def list_invoices(status: str | None = None, supplier: str | None = None, currency: str | None = None,
+                  date_from: date | None = None, date_to: date | None = None, min_total: Decimal | None = None,
+                  max_total: Decimal | None = None, document_id: str | None = None, limit: int = 100, offset: int = 0,
+                  db: Session = Depends(get_db)):
+    q = select(Invoice).order_by(Invoice.created_at.desc())
+    if status:
+        q = q.where(Invoice.status == status)
+    if supplier:
+        q = q.where(Invoice.supplier_norm.ilike(f"%{norm_supplier(supplier) or supplier}%"))
+    if currency:
+        q = q.where(Invoice.currency == currency.upper())
+    if date_from:
+        q = q.where(Invoice.invoice_date >= date_from)
+    if date_to:
+        q = q.where(Invoice.invoice_date <= date_to)
+    if min_total is not None:
+        q = q.where(Invoice.total >= min_total)
+    if max_total is not None:
+        q = q.where(Invoice.total <= max_total)
+    if document_id:
+        q = q.where(Invoice.document_id == document_id)
+    return [inv_summary(i) for i in db.scalars(q.offset(offset).limit(min(limit, 500))).all()]
+
+
+@router.get("/invoices/export")
+def export(status: str | None = None, db: Session = Depends(get_db)):
+    q = select(Invoice).order_by(Invoice.created_at)
+    if status:
+        q = q.where(Invoice.status == status)
+    cols = ["invoice_number", "invoice_date", "supplier_name", "customer_name", "currency", "subtotal", "tax", "total", "status"]
+
+    def safe(v):
+        s = "" if v is None else str(v)
+        # stop spreadsheet apps from running a cell as a formula
+        return "'" + s if s[:1] in ("=", "+", "-", "@", "\t", "\r") else s
+
+    def rows():
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["id"] + cols)
+        yield buf.getvalue()
+        for inv in db.scalars(q).yield_per(200):
+            buf.seek(0)
+            buf.truncate()
+            w.writerow([inv.id] + [safe(getattr(inv, c)) for c in cols])
+            yield buf.getvalue()
+
+    return StreamingResponse(rows(), media_type="text/csv",
+                             headers={"Content-Disposition": "attachment; filename=invoices.csv"})
+
+
+@router.get("/invoices/{invoice_id}")
+def get_invoice(invoice_id: str, db: Session = Depends(get_db)):
+    inv = _inv(db, invoice_id)
+    corr = db.scalars(select(Correction).where(Correction.invoice_id == inv.id).order_by(Correction.id)).all()
+    return inv_detail(inv, corr)
+
+
+class CorrectionIn(BaseModel):
+    field: str
+    value: str | None
+    reason: str | None = None
+
+
+class PatchIn(BaseModel):
+    corrections: list[CorrectionIn]
+    version: int
+    corrected_by: str = "reviewer"
+
+
+def _parse(field: str, value: str | None):
+    if value is None or value == "":
+        return None
+    if field in MONEY or field in ("quantity", "unit_price", "amount"):
+        try:
+            return Decimal(value.replace(",", ""))
+        except InvalidOperation:
+            raise HTTPException(422, f"'{value}' is not a number.")
+    if field in DATES:
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            raise HTTPException(422, f"'{value}' is not a date (YYYY-MM-DD).")
+    if field == "currency":
+        if not re.fullmatch(r"[A-Za-z]{3}", value):
+            raise HTTPException(422, "Currency must be a 3-letter ISO code.")
+        return value.upper()
+    return value.strip()
+
+
+@router.patch("/invoices/{invoice_id}")
+def correct(invoice_id: str, body: PatchIn, db: Session = Depends(get_db)):
+    inv = _inv(db, invoice_id)
+    if body.version != inv.version:
+        raise HTTPException(409, "This invoice was changed by someone else. Reload and try again.")
+    by_name = {f.name: f for f in inv.fields}
+    for c in body.corrections:
+        m = ITEM.match(c.field)
+        if m:
+            idx, col = int(m.group(1)), m.group(2)
+            item = next((li for li in inv.line_items if li.idx == idx), None)
+            if not item:
+                raise HTTPException(422, f"No line item {idx}.")
+            new = c.value if col == "description" else _parse(col, c.value)
+            old = getattr(item, col)
+            setattr(item, col, new)
+            item.confidence = 1.0
+        elif c.field in MONEY | DATES | TEXT:
+            new = _parse(c.field, c.value)
+            old = getattr(inv, c.field)
+            setattr(inv, c.field, new)
+            if c.field == "invoice_number":
+                inv.invoice_number_norm = norm_invoice_number(new)
+            if c.field == "supplier_name":
+                inv.supplier_norm = norm_supplier(new)
+            f = by_name.get(c.field) or ExtractedField(invoice_id=inv.id, name=c.field)
+            f.value_norm = None if new is None else str(new)
+            f.source, f.confidence, f.verified, f.null_reason = "user", 1.0, new is not None, None if new is not None else "not_on_document"
+            db.add(f)
+        else:
+            raise HTTPException(422, f"Unknown field '{c.field}'.")
+        db.add(Correction(invoice_id=inv.id, field=c.field, old_value=None if old is None else str(old),
+                          new_value=None if new is None else str(new), reason=c.reason, corrected_by=body.corrected_by))
+    if inv.status == "approved":
+        inv.status = "needs_review"
+    db.flush()
+    db.refresh(inv)
+    findings = revalidate(db, inv, pages_failed=inv.document.pages_failed)
+    db.commit()
+    return {"status": inv.status, "version": inv.version, "findings": findings}
+
+
+@router.post("/invoices/{invoice_id}/approve")
+def approve(invoice_id: str, db: Session = Depends(get_db)):
+    inv = _inv(db, invoice_id)
+    inv.status = "approved"
+    db.add(Correction(invoice_id=inv.id, field="status", old_value=None, new_value="approved", reason="approved"))
+    db.commit()
+    nxt = _next_review(db, exclude=inv.id)
+    return {"status": "approved", "next_invoice_id": str(nxt) if nxt else None}
+
+
+def _review_query():
+    sev = func.max(case((ValidationResult.severity == "critical", 4), (ValidationResult.severity == "error", 3),
+                        (ValidationResult.severity == "warning", 2), else_=1))
+    return (select(Invoice, sev.label("rank")).outerjoin(ValidationResult, ValidationResult.invoice_id == Invoice.id)
+            .where(Invoice.status == "needs_review").group_by(Invoice.id).order_by(sev.desc().nullslast(), Invoice.created_at))
+
+
+def _next_review(db, exclude=None):
+    q = _review_query()
+    if exclude:
+        q = q.where(Invoice.id != exclude)
+    row = db.execute(q.limit(1)).first()
+    return row[0].id if row else None
+
+
+@router.get("/review-queue")
+def review_queue(limit: int = 100, db: Session = Depends(get_db)):
+    rows = db.execute(_review_query().limit(min(limit, 500))).all()
+    return [{**inv_summary(i), "rank": r, "filename": i.document.filename} for i, r in rows]
+
