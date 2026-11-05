@@ -1,0 +1,9 @@
+.git
+**/__pycache__
+**/.pytest_cache
+web/node_modules
+web/.next
+data
+eval/out
+eval/generated
+backend/tests/fixtures/generated

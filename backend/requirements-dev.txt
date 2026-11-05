@@ -1,0 +1,7 @@
+-r requirements.txt
+pytest==9.2.0
+pytest-cov==7.1.0
+httpx==0.28.1
+faker==40.44.0
+reportlab==5.1.0
+ruff==0.14.4

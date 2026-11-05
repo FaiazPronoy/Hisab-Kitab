@@ -1,0 +1,44 @@
+# secrets and local config
+.env
+*.env.local
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+venv/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+
+# node
+node_modules/
+web/.next/
+web/out/
+*.tsbuildinfo
+next-env.d.ts
+
+# generated data and runtime files
+data/
+eval/out/
+eval/generated/
+backend/tests/fixtures/generated/
+test-results/
+*.log
+
+# editor and tool working files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+CLAUDE.md
+.claude/
+AGENTS.md
+.cursor*
+.agents/
+.impeccable*
+DESIGN.md
