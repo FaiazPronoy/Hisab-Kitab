@@ -53,7 +53,7 @@ def make(fake: Faker, rng: random.Random, i: int, layout: str) -> dict:
         "due_date": (d + timedelta(days=30)).isoformat() if layout not in ("receipt",) else None,
         "supplier_name": fake.company(), "customer_name": fake.company() if layout != "receipt" else None,
         "currency": ccy, "subtotal": str(money(sign * sub)), "tax": str(money(sign * tax)),
-        "discount": str(discount) if discount else None, "shipping": str(shipping) if shipping else None,
+        "discount": str(discount) if discount else None, "shipping": str(money(sign * shipping)) if shipping else None,
         "total": str(money(sign * total)), "tax_rate": str(rate), "line_items": items, "planted": None,
     }
     if layout == "receipt":

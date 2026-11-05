@@ -120,7 +120,7 @@ def score(results: list[dict], recon: dict, ledger: dict, metrics: dict) -> dict
             zoo.append({"file": lab["file"], "expect": lab["expect"], "got": got,
                         "error_code": (r["document"] or {}).get("error_code") or _err(r), "ok": got == lab["expect"]})
             continue
-        if r["kind"] == "ledger":
+        if r["kind"] in ("ledger", "dev"):
             continue
         if lab.get("multi"):
             multi.append({"true": len(lab["invoices"]), "pred": len(r["invoices"])})
@@ -150,16 +150,19 @@ def score(results: list[dict], recon: dict, ledger: dict, metrics: dict) -> dict
 
     rec_items = recon.get("items", [])
     rec = {}
+    def num(i):
+        ref = i["left_ref"] if i["category"] == "missing_in_ledger" else (i["right_ref"] or i["left_ref"])
+        return norm_invoice_number((ref or {}).get("invoice_number"))
+
     for cat, nums in ledger["planted"].items():
-        found = {norm_invoice_number(i["left_value"] if cat == "missing_in_ledger" else i["right_value"])
-                 for i in rec_items if i["category"] == cat}
+        found = {num(i) for i in rec_items if i["category"] == cat}
         hit = sum(norm_invoice_number(n) in found for n in nums)
         rec[cat] = {"n": len(nums), "found": hit, "recall": pct(hit, len(nums))}
     flagged_total = sum(1 for i in rec_items if i["category"] != "matched")
     rec["precision_overall"] = pct(sum(v["found"] for v in rec.values() if isinstance(v, dict)), flagged_total)
 
-    times = [r["secs"] for r in results if r["kind"] in ("pdf", "scan") and r["document"]]
-    docs = [r["document"] for r in results if r["kind"] in ("pdf", "scan") and r["document"]]
+    times = [r["secs"] for r in results if r["kind"] in ("pdf", "scan", "dev") and r["document"]]
+    docs = [r["document"] for r in results if r["kind"] in ("pdf", "scan", "dev") and r["document"]]
     statuses = [d["status"] for d in docs]
     extraction = score_extraction(pdf_rows)
     scans = {t: score_extraction(rows) for t, rows in scan_rows.items() if rows}

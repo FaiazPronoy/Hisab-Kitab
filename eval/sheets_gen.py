@@ -9,13 +9,16 @@ import openpyxl
 
 def ledger(invoices: list[dict], out: Path, rng: random.Random) -> dict:
     out.mkdir(parents=True, exist_ok=True)
-    rows, planted = [], {"amount_mismatch": [], "missing_in_ledger": [], "missing_in_invoices": []}
+    rows, planted = [], {"amount_mismatch": [], "missing_in_ledger": [], "missing_in_invoices": [], "ambiguous": []}
     pool = [x for x in invoices if not x.get("planted") and x["layout"] != "credit_note"]
     rng.shuffle(pool)
     drop = set(x["id"] for x in pool[:3])
     bump = set(x["id"] for x in pool[3:7])
+    ids = {x["id"] for x in invoices}
     for inv in invoices:
-        if inv.get("planted") in ("duplicate", "near_duplicate", "conflict") or inv["layout"] == "credit_note":
+        if inv.get("planted") in ("duplicate", "conflict") and inv.get("duplicate_of") in ids:
+            # two invoices share this number, so its one ledger row cannot pick between them
+            planted["ambiguous"].append(inv["invoice_number"])
             continue
         if inv["id"] in drop:
             planted["missing_in_ledger"].append(inv["invoice_number"])

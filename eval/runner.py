@@ -20,6 +20,7 @@ def _setup_db():
     eval_url = base.rsplit("/", 1)[0] + "/docintel_eval"
     os.environ["DATABASE_URL"] = eval_url
     os.environ["CELERY_EAGER"] = "true"
+    os.environ["UPLOAD_RATE_LIMIT"] = "100000/minute"
     from sqlalchemy import create_engine, text
     admin = create_engine(base, isolation_level="AUTOCOMMIT")
     with admin.connect() as c:
@@ -64,6 +65,8 @@ def run(n: int, seed: int, include_scans: bool):
 
     from app.core.config import get_settings
     from app.main import app
+    import logging
+    logging.getLogger().setLevel(logging.WARNING)
     data = build_dataset(n, seed)
     s = get_settings()
     h = {"X-API-Key": s.api_key}
@@ -80,19 +83,44 @@ def run(n: int, seed: int, include_scans: bool):
         results.append({"kind": kind, "label": lab, "file": path.name, "secs": secs, "upload": resp,
                         "document": detail, "invoices": invs})
 
+    # dev invoices go in too, unscored, so planted duplicates have their original
     for lab in data["pdf"]:
-        if lab["split"] == "test" or lab.get("multi"):
+        if lab["split"] == "dev" and not lab.get("multi"):
+            push("dev", lab, GEN / "pdf" / lab["file"])
+    for lab in data["pdf"]:
+        if lab["split"] == "test" and not lab.get("multi"):
+            push("pdf", lab, GEN / "pdf" / lab["file"])
+    for z in data["zoo"]:
+        push("zoo", z, GEN / "zoo" / z["file"])
+    # later uploads can change earlier invoices (a duplicate flags both), so read every result again at the end
+    for r in results:
+        r["invoices"] = [client.get(f"/api/v1/invoices/{i['id']}", headers=h).json() for i in r["invoices"]]
+    led = data["ledger"]
+    push("ledger", led, GEN / "sheets" / led["file"])
+    ledger_doc = results[-1]["document"]["id"]
+    # the ledger is compared with the digital test invoices only; scans and multi-invoice files are copies of them
+    test_docs = [r["document"]["id"] for r in results if r["kind"] == "pdf" and not r["label"].get("multi") and r["document"]]
+    recon = client.post("/api/v1/reconciliations", headers=h, json={"kind": "ledger", "ledger_document_id": ledger_doc,
+                                                                     "invoice_document_ids": test_docs}).json()
+    metrics = client.get("/api/v1/metrics/summary", headers=h).json()
+
+    # scans and multi-invoice files are copies of test invoices; in the same database
+    # they would all be real duplicates, so they run in a second, empty phase
+    from sqlalchemy import text
+
+    from app.db.session import engine
+    with engine.begin() as c:
+        c.execute(text("TRUNCATE documents, reconciliation_runs, llm_calls, failed_tasks CASCADE"))
+    for lab in data["pdf"]:
+        if lab.get("multi"):
             push("pdf", lab, GEN / "pdf" / lab["file"])
     if include_scans:
         for lab in data["scans"]:
             push("scan", lab, GEN / "scans" / lab["file"])
-    for z in data["zoo"]:
-        push("zoo", z, GEN / "zoo" / z["file"])
-    led = data["ledger"]
-    push("ledger", led, GEN / "sheets" / led["file"])
-    ledger_doc = results[-1]["document"]["id"]
-    recon = client.post("/api/v1/reconciliations", headers=h, json={"kind": "ledger", "ledger_document_id": ledger_doc}).json()
-    metrics = client.get("/api/v1/metrics/summary", headers=h).json()
+    phase2 = client.get("/api/v1/metrics/summary", headers=h).json()
+    metrics["page_timing_ms"].update({k: v for k, v in phase2["page_timing_ms"].items() if k == "ocr"})
+    for k in ("calls", "tokens", "cost_usd"):
+        metrics["llm"][k] += phase2["llm"][k]
 
     from eval import ocr_bench, report, scorer
     bench = ocr_bench.run(data["scans"], GEN) if include_scans else {}
