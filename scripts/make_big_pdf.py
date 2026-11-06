@@ -21,6 +21,15 @@ OUT = Path(os.environ.get("BIG_DIR", "/data/storage/big"))
 
 def build(pages: int, scanned: int, seed: int = 11):
     OUT.mkdir(parents=True, exist_ok=True)
+    p_dig = OUT / f"digital_{pages}.pdf"
+    p_scan = OUT / f"scanned_{scanned}.pdf"
+    if p_dig.exists() and p_scan.exists():
+        try:
+            with pymupdf.open(p_dig) as d1, pymupdf.open(p_scan) as d2:
+                if d1.page_count == pages and d2.page_count == scanned:
+                    return [p_dig, p_scan], 31
+        except Exception:
+            pass
     rng = random.Random(seed)
     fake = Faker("en_GB")
     tmp = OUT / "_one.pdf"
@@ -57,12 +66,13 @@ def upload_and_time(path: Path, api: str, key: str) -> dict:
             resp = c.post(f"{api}/documents", files=[("files", (path.name, f))], headers=h).json()
             doc_id = resp[0]["document_id"]
         while True:
-            d = c.get(f"{api}/documents/{doc_id}", headers=h).json()
+            d = c.get(f"{api}/documents/{doc_id}?detail=false", headers=h).json()
             print(f"[{path.name}] {d.get('pages_done', 0)}/{d.get('page_count', '?')} pages ({d.get('status')})...", flush=True)
             if d["status"] in ("done", "needs_review", "completed_with_errors", "failed"):
                 break
             time.sleep(3)
         wall = time.time() - t0
+        d = c.get(f"{api}/documents/{doc_id}", headers=h).json()
         hist = c.get(f"{api}/documents/{doc_id}/history", headers=h).json()
     rss = [int(e["message"].split("rss_mb=")[1].split()[0]) for e in hist if e.get("message") and "rss_mb=" in e["message"]]
     return {"file": path.name, "pages": d["page_count"], "status": d["status"], "wall_seconds": round(wall, 1),

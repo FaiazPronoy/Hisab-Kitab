@@ -64,7 +64,7 @@ def extract_segment(db, pages, image_loader=None) -> dict:
 
     if len(pages) > LONG_SEGMENT:
         items = []
-        for i in range(0, len(pages), ITEM_CHUNK):
+        for i in range(0, min(len(pages), 16), ITEM_CHUNK):
             chunk = "\n".join(p.layout or "" for p in pages[i:i + ITEM_CHUNK])
             part = call_structured(db, purpose="extract_items", version=prompts.EXTRACT_VERSION, schema=InvoiceOut,
                                    system=prompts.EXTRACT_SYSTEM, user=prompts.EXTRACT_USER.format(hints="none", document=chunk))

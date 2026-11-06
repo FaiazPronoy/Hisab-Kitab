@@ -105,8 +105,8 @@ def _doc(db, document_id) -> Document:
 
 
 @router.get("/documents/{document_id}")
-def get_document(document_id: str, db: Session = Depends(get_db)):
-    return doc_out(_doc(db, document_id), detail=True)
+def get_document(document_id: str, detail: bool = True, db: Session = Depends(get_db)):
+    return doc_out(_doc(db, document_id), detail=detail)
 
 
 @router.get("/documents/{document_id}/pages/{n}")
