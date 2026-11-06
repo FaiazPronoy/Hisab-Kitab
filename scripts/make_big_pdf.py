@@ -28,6 +28,7 @@ def build(pages: int, scanned: int, seed: int = 11):
     i = 0
     while big.page_count < pages:
         inv = generator.make(fake, rng, i, rng.choice(["classic", "wholesale", "eu_vat", "multipage"]))
+        inv["invoice_number"] = f"INV-BIG-{seed}-{(i // 50):02d}"
         generator.render(inv, tmp)
         with pymupdf.open(tmp) as one:
             big.insert_pdf(one, to_page=min(one.page_count, pages - big.page_count) - 1)

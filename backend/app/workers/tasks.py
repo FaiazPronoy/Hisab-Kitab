@@ -71,14 +71,15 @@ def finalize(self, document_id: str):
             db.commit()
         return
     except LlmError as e:
-        with SessionLocal() as db:
-            doc = db.get(Document, document_id)
-            if doc:
-                process.fail_document(db, doc, "LLM_ERROR", f"LLM call failed: {e}")
-                db.commit()
-        if not s.celery_eager:
-            if self.request.retries >= self.max_retries:
+        if s.celery_eager or self.request.retries >= self.max_retries:
+            with SessionLocal() as db:
+                doc = db.get(Document, document_id)
+                if doc:
+                    process.fail_document(db, doc, "LLM_ERROR", f"LLM call failed: {e}")
+                    db.commit()
+            if not s.celery_eager:
                 process.record_task_failure(_scoped, "finalize", [document_id], e)
+        if not s.celery_eager:
             raise
         return
     index.delay(document_id, [str(i) for i in ids])
