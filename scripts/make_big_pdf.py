@@ -27,8 +27,8 @@ def build(pages: int, scanned: int, seed: int = 11):
     big = pymupdf.open()
     i = 0
     while big.page_count < pages:
-        inv = generator.make(fake, rng, i, rng.choice(["classic", "wholesale", "eu_vat", "multipage"]))
-        inv["invoice_number"] = f"INV-BIG-{seed}-{(i // 50):02d}"
+        inv = generator.make(fake, rng, i, rng.choice(["classic", "wholesale", "eu_vat"]))
+        inv["line_items"] = inv["line_items"] * 260
         generator.render(inv, tmp)
         with pymupdf.open(tmp) as one:
             big.insert_pdf(one, to_page=min(one.page_count, pages - big.page_count) - 1)
@@ -64,7 +64,7 @@ def upload_and_time(path: Path, api: str, key: str) -> dict:
             time.sleep(3)
         wall = time.time() - t0
         hist = c.get(f"{api}/documents/{doc_id}/history", headers=h).json()
-    rss = [int(e["message"].split("rss_mb=")[1]) for e in hist if e["message"] and "rss_mb=" in e["message"]]
+    rss = [int(e["message"].split("rss_mb=")[1].split()[0]) for e in hist if e.get("message") and "rss_mb=" in e["message"]]
     return {"file": path.name, "pages": d["page_count"], "status": d["status"], "wall_seconds": round(wall, 1),
             "pages_per_minute": round(d["page_count"] / wall * 60, 1), "pages_failed": d["pages_failed"],
             "invoices": len(d.get("invoices", [])), "peak_worker_rss_mb": max(rss) if rss else None,
