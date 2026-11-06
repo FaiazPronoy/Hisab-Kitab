@@ -15,6 +15,7 @@ from app.workers.celery_app import celery
 
 logger = logging.getLogger(__name__)
 HEAVY_PAGES = 60
+s = get_settings()
 
 retry_kw = dict(autoretry_for=(LlmError, ConnectionError, TimeoutError), retry_backoff=True, retry_backoff_max=60,
                 retry_jitter=True, max_retries=3) if not s.celery_eager else dict()
@@ -45,9 +46,6 @@ def _pages(self, document_id, start, end):
         raise
     if last:
         finalize.delay(document_id)
-
-
-s = get_settings()
 
 
 @celery.task(bind=True, acks_late=True, soft_time_limit=s.page_time_limit_s * s.page_batch_size, **retry_kw)
