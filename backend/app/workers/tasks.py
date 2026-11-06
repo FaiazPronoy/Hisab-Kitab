@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 HEAVY_PAGES = 60
 
 retry_kw = dict(autoretry_for=(LlmError, ConnectionError, TimeoutError), retry_backoff=True, retry_backoff_max=60,
-                retry_jitter=True, max_retries=3)
+                retry_jitter=True, max_retries=3) if not s.celery_eager else dict()
 
 
 def _scoped():
@@ -73,9 +73,16 @@ def finalize(self, document_id: str):
             db.commit()
         return
     except LlmError as e:
-        if self.request.retries >= self.max_retries:
-            process.record_task_failure(_scoped, "finalize", [document_id], e)
-        raise
+        with SessionLocal() as db:
+            doc = db.get(Document, document_id)
+            if doc:
+                process.fail_document(db, doc, "LLM_ERROR", f"LLM call failed: {e}")
+                db.commit()
+        if not s.celery_eager:
+            if self.request.retries >= self.max_retries:
+                process.record_task_failure(_scoped, "finalize", [document_id], e)
+            raise
+        return
     index.delay(document_id, [str(i) for i in ids])
 
 

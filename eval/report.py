@@ -26,6 +26,35 @@ def write(s: dict, path: Path):
         "",
         _t(["Metric", "Value"], [[k.replace("_", " "), v] for k, v in s["headline"].items()]),
         "",
+    ]
+    if "comparison" in s:
+        comp = s["comparison"]
+        m_s = comp.get("mock", {})
+        g_s = comp.get("gemini", {})
+        m_head = m_s.get("headline", {})
+        g_head = g_s.get("headline", {})
+        m_cost = m_s.get("cost", {}).get("cost_usd", 0.0) if m_s.get("cost") else 0.0
+        g_cost = g_s.get("cost", {}).get("cost_usd", 0.0) if g_s.get("cost") else 0.0
+        m_lines = m_s.get("extraction_digital", {}).get("line_items", {}).get("f1", 0.0)
+        g_lines = g_s.get("extraction_digital", {}).get("line_items", {}).get("f1", 0.0)
+        comp_rows = [
+            ["digital macro f1", m_head.get("digital_macro_f1"), g_head.get("digital_macro_f1")],
+            ["digital all key fields correct", m_head.get("digital_all_key_fields_correct"), g_head.get("digital_all_key_fields_correct")],
+            ["hallucination rate", m_head.get("hallucination_rate"), g_head.get("hallucination_rate")],
+            ["routing recall", m_head.get("routing_recall"), g_head.get("routing_recall")],
+            ["line items f1", m_lines, g_lines],
+            ["segmentation accuracy", m_head.get("segmentation_accuracy"), g_head.get("segmentation_accuracy")],
+            ["success rate", m_head.get("success_rate"), g_head.get("success_rate")],
+            ["total cost (USD)", f"${m_cost:.4f}" if isinstance(m_cost, (int, float)) else str(m_cost),
+                                f"${g_cost:.4f}" if isinstance(g_cost, (int, float)) else str(g_cost)],
+        ]
+        lines += [
+            "## Rule-based baseline vs LLM",
+            "",
+            _t(["Metric", "Rule parser (mock)", "Gemini 3.5 Flash-Lite"], comp_rows),
+            "",
+        ]
+    lines += [
         f"## Extraction, digital PDFs (n = {ex['n']})",
         "",
         _t(["Field", "Precision", "Recall", "F1", "Hallucinations", "Abstentions", "n with value"],

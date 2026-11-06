@@ -129,8 +129,25 @@ def run(n: int, seed: int, include_scans: bool):
     scores["config"] = {"llm_provider": s.llm_provider, "llm_model": s.llm_model if s.llm_provider != "mock" else "mock (rule parser)",
                         "n_generated": n, "seed": seed}
     OUT.mkdir(parents=True, exist_ok=True)
+    p_name = "gemini" if s.llm_provider == "gemini" else "mock"
+    (OUT / f"results_{p_name}.json").write_text(json.dumps(scores, indent=2, default=str), encoding="utf-8")
     (OUT / "results.json").write_text(json.dumps(scores, indent=2, default=str), encoding="utf-8")
-    report.write(scores, ROOT.parent / "EVALUATION.md")
+
+    mock_p = OUT / "results_mock.json"
+    gemini_p = OUT / "results_gemini.json"
+    if mock_p.exists() and gemini_p.exists():
+        try:
+            scores["comparison"] = {
+                "mock": json.loads(mock_p.read_text(encoding="utf-8")),
+                "gemini": json.loads(gemini_p.read_text(encoding="utf-8")),
+            }
+        except Exception:
+            pass
+
+    out_file = Path("/repo/EVALUATION.md") if Path("/repo/EVALUATION.md").exists() else (ROOT.parent / "EVALUATION.md")
+    report.write(scores, out_file)
+    if out_file != ROOT.parent / "EVALUATION.md":
+        report.write(scores, ROOT.parent / "EVALUATION.md")
     print(json.dumps(scores["headline"], indent=2))
 
 

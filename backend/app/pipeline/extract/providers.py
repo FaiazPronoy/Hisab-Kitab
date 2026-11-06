@@ -161,14 +161,20 @@ def call_structured(db, *, purpose: str, version: str, schema: type[BaseModel], 
             pass
 
     bucket, sem = _limits()
-    for attempt in (1, 2):
+    for attempt in (1, 2, 3):
         with _lock:
             if _state["spent"] >= s.llm_budget_usd:
                 raise BudgetExceeded()
         bucket.take()
         t0 = time.monotonic()
-        with sem:
-            text, tin, tout = provider.generate(model, system, user, schema, image)
+        try:
+            with sem:
+                text, tin, tout = provider.generate(model, system, user, schema, image)
+        except LlmError as e:
+            if not e.transient or attempt == 3:
+                raise
+            time.sleep(2.0 * attempt)
+            continue
         ms = int((time.monotonic() - t0) * 1000)
         cost = cost_of(model, tin, tout)
         with _lock:
