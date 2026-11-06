@@ -62,9 +62,9 @@ One function decides: any critical or error finding, more than one warning, any 
 
 A register sheet (one invoice per row) is never sent to the LLM row by row. Column headers are mapped with a synonym list; only if that fails is the LLM shown the headers and five sample rows once. All rows are then parsed deterministically, so a 100,000-row ledger costs at most one call. Form-style sheets (one invoice laid out in cells) are serialized as `[S1:R4C2] value` lines and go through normal extraction.
 
-## 12. Gemini 2.5 Flash-Lite, temperature 0, with a provider interface
+## 12. Gemini 3.5 Flash-Lite, temperature 0, with a provider interface
 
-The cheapest current model with JSON-schema structured output: $0.10 per million input tokens and $0.40 per million output tokens (Gemini pricing page, checked 2026-11-06). Gemini 2.5 Flash is the vision fallback. Provider and model are environment variables. A `MockProvider` runs a label-based parser so the whole system and its tests work offline; it doubles as the rule-based baseline in the evaluation.
+The cheapest current model with JSON-schema structured output: $0.30 per million input tokens and $2.50 per million output tokens (Gemini pricing page, checked 2026-11-06). Gemini 3.5 Flash ($1.50 in, $9.00 out) is the vision fallback. Provider and model are environment variables. A `MockProvider` runs a label-based parser so the whole system and its tests work offline; it doubles as the rule-based baseline in the evaluation.
 
 Every call is cached by hash of prompt version, model and input, so reruns and repeated evals cost nothing. A token bucket, a concurrency semaphore and a spending cap (`LLM_BUDGET_USD`) bound cost.
 
