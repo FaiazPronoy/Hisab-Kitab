@@ -42,3 +42,6 @@ AGENTS.md
 .agents/
 .impeccable*
 DESIGN.md
+
+# copy written inside the container by make eval
+backend/EVALUATION.md

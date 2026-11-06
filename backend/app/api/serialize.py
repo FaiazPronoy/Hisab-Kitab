@@ -16,10 +16,19 @@ def _s(v):
     return None if v is None else str(v)
 
 
+def _m(v):
+    # NUMERIC(18,4) in the database, two places on screen
+    return None if v is None else f"{v:.2f}"
+
+
+def _q(v):
+    return None if v is None else format(v.normalize(), "f")
+
+
 def inv_summary(i: Invoice) -> dict:
     return {"id": str(i.id), "document_id": str(i.document_id), "status": i.status, "doc_type": i.doc_type,
             "invoice_number": i.invoice_number, "invoice_date": _s(i.invoice_date), "supplier_name": i.supplier_name,
-            "customer_name": i.customer_name, "currency": i.currency, "total": _s(i.total),
+            "customer_name": i.customer_name, "currency": i.currency, "total": _m(i.total),
             "page_start": i.page_start, "page_end": i.page_end, "sheet_name": i.sheet_name, "row_index": i.row_index,
             "overall_confidence": i.overall_confidence,
             "findings": {sev: sum(f.severity == sev for f in i.findings) for sev in ("critical", "error", "warning", "info")}}
@@ -29,13 +38,13 @@ def inv_detail(i: Invoice, corrections) -> dict:
     out = inv_summary(i)
     out.update({
         "version": i.version, "flags": i.flags or [], "boundary_confidence": i.boundary_confidence,
-        "subtotal": _s(i.subtotal), "tax": _s(i.tax), "discount": _s(i.discount), "shipping": _s(i.shipping),
+        "subtotal": _m(i.subtotal), "tax": _m(i.tax), "discount": _m(i.discount), "shipping": _m(i.shipping),
         "due_date": _s(i.due_date), "po_number": i.po_number, "tax_lines": i.tax_lines or [],
         "fields": {f.name: {"value_raw": f.value_raw, "value": f.value_norm, "confidence": f.confidence, "page": f.page_no,
                             "line_id": f.line_id, "bbox": f.bbox, "quote": f.evidence_quote, "source": f.source,
                             "null_reason": f.null_reason, "verified": f.verified} for f in i.fields},
-        "line_items": [{"idx": li.idx, "description": li.description, "quantity": _s(li.quantity), "unit_price": _s(li.unit_price),
-                        "amount": _s(li.amount), "confidence": li.confidence, "evidence": li.evidence} for li in i.line_items],
+        "line_items": [{"idx": li.idx, "description": li.description, "quantity": _q(li.quantity), "unit_price": _m(li.unit_price),
+                        "amount": _m(li.amount), "confidence": li.confidence, "evidence": li.evidence} for li in i.line_items],
         "findings_list": [{"rule_code": f.rule_code, "severity": f.severity, "field": f.field, "message": f.message,
                            "expected": f.expected, "actual": f.actual,
                            "related_invoice_id": _s(f.related_invoice_id)} for f in i.findings],

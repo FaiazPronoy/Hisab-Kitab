@@ -92,7 +92,7 @@ def search(q: str = "", mode: str = "hybrid", supplier: str | None = None, curre
         inv = db.get(Invoice, iid)
         out.append({"id": iid, "invoice_number": inv.invoice_number, "supplier_name": inv.supplier_name,
                     "customer_name": inv.customer_name, "invoice_date": str(inv.invoice_date) if inv.invoice_date else None,
-                    "total": str(inv.total) if inv.total is not None else None, "currency": inv.currency, "status": inv.status,
+                    "total": f"{inv.total:.2f}" if inv.total is not None else None, "currency": inv.currency, "status": inv.status,
                     "document_id": str(inv.document_id), "score": round(fused[iid], 5), "snippet": snippets.get(iid),
                     "matched_by": [k for k, lst in ranks.items() if iid in lst]})
     return {"mode": mode, "count": len(out), "results": out}
