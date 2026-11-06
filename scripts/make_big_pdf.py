@@ -19,9 +19,9 @@ from eval import degrade, generator
 OUT = Path(os.environ.get("BIG_DIR", "/data/storage/big"))
 
 
-def build(pages: int, scanned: int):
+def build(pages: int, scanned: int, seed: int = 11):
     OUT.mkdir(parents=True, exist_ok=True)
-    rng = random.Random(11)
+    rng = random.Random(seed)
     fake = Faker("en_GB")
     tmp = OUT / "_one.pdf"
     big = pymupdf.open()
@@ -50,32 +50,35 @@ def build(pages: int, scanned: int):
 
 def upload_and_time(path: Path, api: str, key: str) -> dict:
     h = {"X-API-Key": key}
-    with httpx.Client(timeout=120) as c:
+    with httpx.Client(timeout=300) as c:
         t0 = time.time()
         with open(path, "rb") as f:
-            doc_id = c.post(f"{api}/documents", files=[("files", (path.name, f))], headers=h).json()[0]["document_id"]
+            resp = c.post(f"{api}/documents", files=[("files", (path.name, f))], headers=h).json()
+            doc_id = resp[0]["document_id"]
         while True:
             d = c.get(f"{api}/documents/{doc_id}", headers=h).json()
+            print(f"[{path.name}] {d.get('pages_done', 0)}/{d.get('page_count', '?')} pages ({d.get('status')})...", flush=True)
             if d["status"] in ("done", "needs_review", "completed_with_errors", "failed"):
                 break
-            time.sleep(2)
+            time.sleep(3)
         wall = time.time() - t0
         hist = c.get(f"{api}/documents/{doc_id}/history", headers=h).json()
     rss = [int(e["message"].split("rss_mb=")[1]) for e in hist if e["message"] and "rss_mb=" in e["message"]]
     return {"file": path.name, "pages": d["page_count"], "status": d["status"], "wall_seconds": round(wall, 1),
             "pages_per_minute": round(d["page_count"] / wall * 60, 1), "pages_failed": d["pages_failed"],
-            "invoices": len(d["invoices"]), "peak_worker_rss_mb": max(rss) if rss else None,
-            "workers": os.environ.get("WORKERS", "see docker compose")}
+            "invoices": len(d.get("invoices", [])), "peak_worker_rss_mb": max(rss) if rss else None,
+            "workers": os.environ.get("WORKERS", "1 worker (concurrency 2)")}
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--pages", type=int, default=1000)
     ap.add_argument("--scanned", type=int, default=100)
+    ap.add_argument("--seed", type=int, default=11)
     ap.add_argument("--upload", action="store_true")
     ap.add_argument("--api", default=os.environ.get("API_URL", "http://api:8000/api/v1"))
     a = ap.parse_args()
-    files, n = build(a.pages, a.scanned)
+    files, n = build(a.pages, a.scanned, a.seed)
     print(f"built {files} from {n} synthetic invoices")
     if a.upload:
         key = os.environ.get("API_KEY", "local-dev-key")
