@@ -73,19 +73,30 @@ def check(inv: dict, meta: dict, items: list[dict], tax_lines: list[dict], flags
     if tax is not None and tax_sum is not None and abs(tax_sum - tax) > tol(tax, t["tax_lines_abs"], t["tax_lines_pct"]):
         out.append(F("TAX_LINES", "warning", "tax", "Tax lines do not add up to the tax total.", tax_sum, tax))
 
-    if total is not None and sub is not None:
+    sub_to_use = sub
+    is_sub_derived = False
+    if sub_to_use is None and items and amounts and all(a is not None for a in amounts):
+        sub_to_use = sum(amounts, ZERO)
+        if credit and sub_to_use > 0 and (total or ZERO) < 0:
+            sub_to_use = -sub_to_use
+        is_sub_derived = True
+
+    if total is not None and sub_to_use is not None:
         tax_used = tax if tax is not None else (tax_sum or ZERO)
-        exp = sub - disc + ship + tax_used
+        exp = sub_to_use - disc + ship + tax_used
         allowed = max(Decimal(str(t["total_abs"])), Decimal(str(t["total_per_line"])) * (len(items) + len(tax_lines)))
         if abs(exp - total) > allowed:
-            if abs((sub - disc + ship) - total) <= allowed and tax_used:
+            if abs((sub_to_use - disc + ship) - total) <= allowed and tax_used:
                 out.append(F("TAX_INCLUSIVE", "info", "total", "Totals only reconcile if the prices already include tax."))
             else:
-                msg = ("Subtotal, discount, shipping and tax do not add up to the total." if tax is not None or tax_sum is not None
-                       else "The total does not match the printed amounts and no tax is printed; a tax line may be missing.")
+                if is_sub_derived:
+                    msg = "Derived subtotal from line items, discount, shipping and tax do not add up to the total."
+                else:
+                    msg = ("Subtotal, discount, shipping and tax do not add up to the total." if tax is not None or tax_sum is not None
+                           else "The total does not match the printed amounts and no tax is printed; a tax line may be missing.")
                 out.append(F("TOTAL_MATH", "error", "total", msg, exp, total))
-        if tax is not None and sub > 0:
-            rate = tax / sub
+        if tax is not None and sub_to_use > 0:
+            rate = tax / sub_to_use
             if rate < 0 or rate > Decimal(str(cfg["tax_rate"]["max_plausible"])):
                 out.append(F("TAX_RATE", "warning", "tax", f"Effective tax rate {rate:.1%} looks wrong.", actual=f"{rate:.4f}"))
 

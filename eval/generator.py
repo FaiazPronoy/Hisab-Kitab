@@ -63,10 +63,14 @@ def make(fake: Faker, rng: random.Random, i: int, layout: str) -> dict:
 
 def plant(rng, invs: list[dict], share: float = 0.13):
     """Make some invoices wrong on purpose so validation recall can be measured."""
-    kinds = ["wrong_total", "missing_tax", "missing_number", "duplicate", "near_duplicate", "conflict"]
+    kinds = ["wrong_total", "missing_subtotal_wrong_total", "missing_tax", "missing_number", "duplicate", "near_duplicate", "conflict"]
     for inv in rng.sample(invs, int(len(invs) * share)):
         k = rng.choice(kinds)
         if k == "wrong_total":
+            inv["printed_total"] = str(money(Decimal(inv["total"]) + Decimal(rng.choice([10, 9, 100, 1]))))
+        elif k == "missing_subtotal_wrong_total":
+            inv["subtotal"] = None
+            inv["hide"] = list(set((inv.get("hide") or []) + ["subtotal"]))
             inv["printed_total"] = str(money(Decimal(inv["total"]) + Decimal(rng.choice([10, 9, 100, 1]))))
         elif k == "missing_tax":
             inv["hide"] = ["tax"]
@@ -166,7 +170,7 @@ def draw(c: canvas.Canvas, inv: dict, continued_from: int | None = None):
         y -= 16
     y -= 14
     rows = []
-    if inv.get("subtotal"):
+    if inv.get("subtotal") and "subtotal" not in hide:
         rows.append(("Subtotal", inv["subtotal"]))
     if inv.get("discount"):
         rows.append(("Discount", str(-Decimal(inv["discount"]))))

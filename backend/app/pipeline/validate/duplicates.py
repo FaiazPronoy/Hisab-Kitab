@@ -18,7 +18,8 @@ def tier(a: dict, b: dict, cfg: dict) -> str | None:
     if not (a.get("supplier_norm") and b.get("supplier_norm")):
         return None
     sim = fuzz.ratio(a["supplier_norm"], b["supplier_norm"]) / 100
-    if sim < cfg["duplicates"]["supplier_trigram_min"] or a.get("total") is None or a.get("total") != b.get("total"):
+    min_sim = cfg["duplicates"].get("supplier_similarity_min", cfg["duplicates"].get("supplier_trigram_min", 0.85))
+    if sim < min_sim or a.get("total") is None or a.get("total") != b.get("total"):
         return None
     da, db_ = a.get("invoice_date"), b.get("invoice_date")
     if da and db_ and abs((da - db_).days) > cfg["duplicates"]["date_window_days"]:
@@ -39,9 +40,11 @@ def find(db, inv: Invoice) -> list[dict]:
     conds = []
     if inv.invoice_number_norm:
         conds.append(Invoice.invoice_number_norm == inv.invoice_number_norm)
-    if inv.total is not None:
-        conds.append(Invoice.total == inv.total)
-    rows = db.scalars(q.where(or_(*conds)).limit(50)).all() if conds else []
+    if inv.supplier_norm:
+        conds.append(Invoice.supplier_norm == inv.supplier_norm)
+        conds.append(Invoice.supplier_norm.op("%")(inv.supplier_norm))
+    # Raised limit to 500 to avoid candidate starvation when many invoices share common values
+    rows = db.scalars(q.where(or_(*conds)).order_by(Invoice.created_at.desc(), Invoice.id.desc()).limit(500)).all() if conds else []
     me = _typed(inv)
     out = []
     for other in rows:

@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 import psutil
 import redis
-from sqlalchemy import select, text
+from sqlalchemy import event, select, text
 
 from app.core.config import get_settings
 from app.core.logging import log as jlog
@@ -467,7 +467,33 @@ def revalidate(db, inv: Invoice, pages_failed: int = 0):
                                 related_invoice_id=f.get("related_invoice_id")))
     if inv.status != "approved":
         inv.status = routing.route(findings, meta, pages_failed, inv.flags or [])
-    # a duplicate concerns both invoices, whichever arrived first
+
+    # 1. Clean up stale mirrored duplicate findings on other invoices that previously pointed to this invoice
+    current_dup_related = {f["related_invoice_id"] for f in findings if f.get("related_invoice_id")}
+    old_mirrored = db.scalars(
+        select(ValidationResult).where(
+            ValidationResult.related_invoice_id == inv.id,
+            ValidationResult.rule_code.like("DUP_%")
+        )
+    ).all()
+    affected_other_invoices = set()
+    for res in old_mirrored:
+        if res.invoice_id not in current_dup_related:
+            other = db.get(Invoice, res.invoice_id)
+            db.delete(res)
+            if other:
+                affected_other_invoices.add(other)
+    db.flush()
+    for other in affected_other_invoices:
+        if other.status != "approved":
+            other_meta = field_meta(other)
+            other_pf = other.document.pages_failed if other.document else 0
+            other.status = routing.route(
+                [{"severity": v.severity, "rule_code": v.rule_code} for v in other.findings],
+                other_meta, other_pf, other.flags or []
+            )
+
+    # 2. A duplicate concerns both invoices, whichever arrived first
     for f in findings:
         other = db.get(Invoice, f["related_invoice_id"]) if f.get("related_invoice_id") else None
         if other is None or any(v.rule_code == f["rule_code"] and v.related_invoice_id == inv.id for v in other.findings):
@@ -479,6 +505,30 @@ def revalidate(db, inv: Invoice, pages_failed: int = 0):
             other.status = "needs_review"
     db.flush()
     return findings
+
+
+from sqlalchemy.orm import Session as _SqlAlchemySession  # noqa: E402
+
+
+@event.listens_for(_SqlAlchemySession, "before_flush")
+def _cleanup_deleted_invoices_duplicates(session, flush_context, instances):
+    for obj in list(session.deleted):
+        if isinstance(obj, Invoice):
+            mirrored = session.scalars(
+                select(ValidationResult).where(ValidationResult.related_invoice_id == obj.id)
+            ).all()
+            affected = set()
+            for res in mirrored:
+                other = session.get(Invoice, res.invoice_id)
+                session.delete(res)
+                if other and other not in session.deleted:
+                    affected.add(other)
+            for other in affected:
+                if other.status != "approved":
+                    meta = field_meta(other)
+                    other_pf = other.document.pages_failed if other.document else 0
+                    rem = [{"severity": v.severity, "rule_code": v.rule_code} for v in other.findings if v not in mirrored]
+                    other.status = routing.route(rem, meta, other_pf, other.flags or [])
 
 
 def finish_document(db, doc: Document):

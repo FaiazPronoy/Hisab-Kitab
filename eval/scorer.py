@@ -11,7 +11,8 @@ from app.pipeline.extract.normalize import norm_invoice_number
 FIELDS = ["invoice_number", "invoice_date", "supplier_name", "customer_name", "currency", "subtotal", "tax", "total"]
 KEY = ["invoice_number", "invoice_date", "supplier_name", "currency", "total"]
 AMOUNT = {"subtotal", "tax", "total"}
-EXPECT_RULE = {"wrong_total": "TOTAL_MATH", "missing_tax": "OPT_MISSING", "missing_number": "REQ_MISSING",
+EXPECT_RULE = {"wrong_total": "TOTAL_MATH", "missing_subtotal_wrong_total": "TOTAL_MATH",
+               "missing_tax": "OPT_MISSING", "missing_number": "REQ_MISSING",
                "duplicate": "DUP_INVOICE", "near_duplicate": "DUP_SUSPECTED", "conflict": "DUP_CONFLICT"}
 
 
