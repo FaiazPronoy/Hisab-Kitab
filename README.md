@@ -54,6 +54,16 @@ Without `make` (plain Windows), the targets are one-liners: `docker compose run 
 
 Full tables, the dataset composition and the limitations are in [EVALUATION.md](EVALUATION.md). Numbers come from one run on one machine; nothing here is extrapolated.
 
+## Screenshots
+
+| Review workstation | Reconciliation |
+|---|---|
+| ![Review workstation](docs/images/workstation.png) | ![Reconciliation](docs/images/reconciliation.png) |
+
+| Search | Metrics |
+|---|---|
+| ![Search](docs/images/search.png) | ![Metrics](docs/images/metrics.png) |
+
 ## How it works
 
 ```mermaid
