@@ -6,7 +6,7 @@ from datetime import date
 
 from app.core.config import validation_config
 from app.pipeline.extract import prompts
-from app.pipeline.extract.grounding import ground, suspicious
+from app.pipeline.extract.grounding import _digits, ground, quote_score, suspicious, value_in_quote
 from app.pipeline.extract.normalize import (
     infer_day_first, norm_invoice_number, norm_supplier, number_style, parse_amount, parse_currency, parse_date,
 )
@@ -14,7 +14,7 @@ from app.pipeline.extract.providers import call_structured
 from app.pipeline.extract.schema import AMOUNTS, DATES, SCALARS, Field_, InvoiceOut
 
 LONG_SEGMENT = 10
-ITEM_CHUNK = 8
+ITEM_CHUNK = 16
 SECOND_PASS = ("invoice_number", "total", "invoice_date")
 
 HINT_PATTERNS = {
@@ -62,15 +62,25 @@ def extract_segment(db, pages, image_loader=None) -> dict:
         flags.append("extraction_failed")
         out = InvoiceOut()
 
-    if len(pages) > LONG_SEGMENT and not out.line_items:
-        items = []
-        for i in range(0, min(len(pages), 16), ITEM_CHUNK):
-            chunk = "\n".join(p.layout or "" for p in pages[i:i + ITEM_CHUNK])
+    if len(pages) > LONG_SEGMENT:
+        all_items = list(out.line_items)
+        for i in range(2, max(2, len(pages) - 2), ITEM_CHUNK):
+            chunk_pages = pages[i:i + ITEM_CHUNK]
+            chunk = "\n".join(p.layout or "" for p in chunk_pages)
+            if not chunk.strip():
+                continue
             part = call_structured(db, purpose="extract_items", version=prompts.EXTRACT_VERSION, schema=InvoiceOut,
                                    system=prompts.EXTRACT_SYSTEM, user=prompts.EXTRACT_USER.format(hints="none", document=chunk))
-            if part:
-                items.extend(part.line_items)
-        out.line_items = items or out.line_items
+            if part and part.line_items:
+                all_items.extend(part.line_items)
+        seen = set()
+        deduped = []
+        for it in all_items:
+            key = ((it.description or "").strip().lower(), (it.amount or "").strip(), (it.quantity or "").strip())
+            if key not in seen:
+                seen.add(key)
+                deduped.append(it)
+        out.line_items = deduped
 
     source = "llm"
     fields = {f: ground(f, getattr(out, f), full_text, lines, _kind(f), min_q) for f in SCALARS}
@@ -143,8 +153,16 @@ def normalize(fields: dict, out: InvoiceOut, full_text: str, lines: list, flags:
     items = []
     for i, it in enumerate(out.line_items):
         q = it.quote or " ".join(x for x in (it.description, it.quantity, it.unit_price, it.amount) if x)
-        ok = bool(q) and (q.lower() in full_text.lower() or ground("amount", Field_(value=it.amount or "", quote=q, line_id=it.line_id, confidence=0.9),
-                                                                     full_text, lines, "amount", min_q)["verified"])
+        q_score = quote_score(q, full_text) if q else 0.0
+        q_present = q_score >= min_q
+        val_present = True
+        if it.amount:
+            val_present = value_in_quote("amount", it.amount, q, "amount")
+        elif it.unit_price:
+            val_present = value_in_quote("amount", it.unit_price, q, "amount")
+        elif it.quantity:
+            val_present = _digits(it.quantity) in _digits(q)
+        ok = bool(q) and q_present and val_present
         items.append({
             "idx": i, "description": it.description,
             "quantity": _dec(it.quantity, style), "unit_price": _dec(it.unit_price, style), "amount": _dec(it.amount, style),

@@ -1,13 +1,17 @@
 import asyncio
+import hashlib
 import io
+import json
 import tempfile
 from pathlib import Path
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.serialize import doc_out
@@ -34,13 +38,27 @@ def enqueue(document_id: str):
 async def upload(request: Request, files: list[UploadFile] = File(...), db: Session = Depends(get_db),
                  idempotency_key: str | None = Header(None)):
     s = get_settings()
+    rc = None
+    if idempotency_key:
+        try:
+            rc = aioredis.from_url(s.redis_url)
+            cached = await rc.get(f"docintel:idemp:{idempotency_key}")
+            if cached:
+                await rc.aclose()
+                return json.loads(cached)
+        except Exception:
+            pass
+
     if len(files) > s.max_files_per_request:
+        if rc:
+            await rc.aclose()
         raise HTTPException(413, f"At most {s.max_files_per_request} files per request.")
     limit = s.max_upload_mb * 1024 * 1024
     out = []
     st = storage()
     for uf in files:
         name = safe_filename(uf.filename or "file")
+        hasher = hashlib.sha256()
         with tempfile.NamedTemporaryFile(delete=False, dir=st.root) as tmp:
             size = 0
             while chunk := await uf.read(1024 * 1024):
@@ -48,16 +66,19 @@ async def upload(request: Request, files: list[UploadFile] = File(...), db: Sess
                 if size > limit:
                     tmp.close()
                     Path(tmp.name).unlink(missing_ok=True)
+                    if rc:
+                        await rc.aclose()
                     raise HTTPException(413, f"{name} is larger than {s.max_upload_mb} MB.")
+                hasher.update(chunk)
                 tmp.write(chunk)
         tmp_path = Path(tmp.name)
+        digest = hasher.hexdigest()
         try:
-            info = check_file(name, tmp_path)
+            info = await run_in_threadpool(check_file, name, tmp_path)
         except IngestError as e:
             tmp_path.unlink(missing_ok=True)
             out.append({"filename": name, "status": "rejected", "error_code": e.code, "error_message": e.message})
             continue
-        digest = sha256_file(tmp_path)
         existing = db.scalar(select(Document).where(Document.sha256 == digest))
         if existing:
             tmp_path.unlink(missing_ok=True)
@@ -65,16 +86,39 @@ async def upload(request: Request, files: list[UploadFile] = File(...), db: Sess
                         "duplicate_of": str(existing.id), "job_id": None})
             continue
         key = st.new_key(info.ext)
-        tmp_path.replace(st.path(key))
-        doc = Document(sha256=digest, filename=name, mime=info.mime, size_bytes=size, storage_key=key, kind=info.kind)
-        db.add(doc)
-        db.flush()
-        job = Job(document_id=doc.id, queue="ingest")
-        db.add(job)
-        db.commit()
-        enqueue(str(doc.id))
-        out.append({"filename": name, "document_id": str(doc.id), "job_id": str(job.id), "status": "queued",
-                    "duplicate_of": None})
+        dest_path = st.path(key)
+        try:
+            tmp_path.replace(dest_path)
+            doc = Document(sha256=digest, filename=name, mime=info.mime, size_bytes=size, storage_key=key, kind=info.kind)
+            db.add(doc)
+            db.flush()
+            job = Job(document_id=doc.id, queue="ingest")
+            db.add(job)
+            db.commit()
+            enqueue(str(doc.id))
+            out.append({"filename": name, "document_id": str(doc.id), "job_id": str(job.id), "status": "queued",
+                        "duplicate_of": None})
+        except IntegrityError:
+            db.rollback()
+            Path(dest_path).unlink(missing_ok=True)
+            tmp_path.unlink(missing_ok=True)
+            existing = db.scalar(select(Document).where(Document.sha256 == digest))
+            if existing:
+                out.append({"filename": name, "document_id": str(existing.id), "status": existing.status,
+                            "duplicate_of": str(existing.id), "job_id": None})
+        except Exception:
+            db.rollback()
+            Path(dest_path).unlink(missing_ok=True)
+            tmp_path.unlink(missing_ok=True)
+            raise
+
+    if idempotency_key and rc:
+        try:
+            await rc.setex(f"docintel:idemp:{idempotency_key}", 3600, json.dumps(out))
+            await rc.aclose()
+        except Exception:
+            pass
+
     if out and all(o["status"] == "rejected" for o in out) and len(out) == 1:
         raise HTTPException(422, {"error_code": out[0]["error_code"], "message": out[0]["error_message"]})
     return out
@@ -91,7 +135,12 @@ def list_documents(status: str | None = None, kind: str | None = None, cursor: s
     if cursor:
         ref = db.get(Document, cursor)
         if ref:
-            q = q.where(Document.created_at < ref.created_at)
+            q = q.where(
+                or_(
+                    Document.created_at < ref.created_at,
+                    and_(Document.created_at == ref.created_at, Document.id < ref.id)
+                )
+            )
     rows = db.scalars(q.limit(min(limit, 200) + 1)).all()
     items = rows[:limit]
     return {"items": [doc_out(d) for d in items], "next_cursor": str(items[-1].id) if len(rows) > limit else None}
@@ -130,10 +179,9 @@ def page_image(document_id: str, n: int, db: Session = Depends(get_db)):
                     raise HTTPException(404, "Page not found.")
                 img = pdf_mod.render(pdf[n - 1], 110, s.max_image_pixels)
         elif d.kind == "image":
-            frames = image_mod.load_frames(path, s.max_image_pixels)
-            if not 1 <= n <= len(frames):
+            if not 1 <= n <= (d.page_count or 1):
                 raise HTTPException(404, "Page not found.")
-            img = frames[n - 1].convert("RGB")
+            img = image_mod.load_single_frame(path, n - 1, s.max_image_pixels)
             img.thumbnail((1400, 1400))
         else:
             raise HTTPException(404, "Spreadsheets have no page image.")
@@ -182,8 +230,12 @@ class Reprocess(BaseModel):
 
 @router.post("/documents/{document_id}/reprocess", status_code=202)
 def reprocess(document_id: str, body: Reprocess, db: Session = Depends(get_db)):
+    if body.scope not in ("failed_only", "all"):
+        raise HTTPException(422, "Invalid reprocess scope. Allowed values: failed_only, all.")
     d = _doc(db, document_id)
     if d.kind == "sheet" or d.status == "failed" or body.scope == "all":
+        for inv in list(d.invoices):
+            db.delete(inv)
         if body.scope == "all":
             for p in d.pages:
                 p.status = "pending"
@@ -201,10 +253,12 @@ def reprocess(document_id: str, body: Reprocess, db: Session = Depends(get_db)):
     d.pages_failed = 0
     d.pages_done = sum(p.status == "done" for p in d.pages)
     d.status = "processing"
-    db.add(Job(document_id=d.id, type="reprocess_failed", queue="ocr"))
+    heavy = d.page_count > 60
+    db.add(Job(document_id=d.id, type="reprocess_failed", queue="ocr_heavy" if heavy else "ocr"))
     db.commit()
-    from app.workers.tasks import pages
+    from app.workers.tasks import pages, pages_heavy
+    task = pages_heavy if heavy else pages
     for n in failed:
-        pages.delay(str(d.id), n, n)
+        task.delay(str(d.id), n, n)
     return {"document_id": str(d.id), "status": "processing", "pages": failed}
 

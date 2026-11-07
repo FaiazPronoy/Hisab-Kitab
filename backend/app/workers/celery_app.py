@@ -10,6 +10,8 @@ celery.conf.update(
     task_acks_late=True,
     task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=1,
+    worker_max_memory_per_child=600000,
+    broker_transport_options={"visibility_timeout": 7200},
     task_default_queue="ingest",
     task_routes={
         "app.workers.tasks.ingest": {"queue": "ingest"},

@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 PRICES = {
     "gemini-3.5-flash-lite": (0.30, 2.50),
     "gemini-3.5-flash": (1.50, 9.00),
-    "gemini-3.1-flash-lite": (0.25, 1.00),
-    "gemini-3-flash-preview": (0.30, 2.50),
+    "gemini-3.1-flash-lite": (0.25, 1.50),
+    "gemini-3-flash-preview": (0.50, 3.00),
     "gemini-2.5-flash-lite": (0.10, 0.40),
     "gemini-2.5-flash": (0.30, 2.50),
     "mock": (0.0, 0.0),
@@ -86,12 +86,24 @@ class GeminiProvider(Provider):
         except errors.APIError as e:
             code = getattr(e, "code", 0) or 0
             msg = str(e).lower()
-            is_daily = "perday" in msg or "requests per day" in msg or "free tier" in msg
+            is_daily = "perday" in msg or "requests per day" in msg
             raise LlmError(f"gemini {code}", transient=(code in (408, 429) or code >= 500) and not is_daily)
         except Exception as e:  # network errors and timeouts
             raise LlmError(type(e).__name__, transient=True)
         u = r.usage_metadata
-        return r.text or "{}", getattr(u, "prompt_token_count", 0) or 0, getattr(u, "candidates_token_count", 0) or 0
+        thoughts = getattr(u, "thoughts_token_count", 0) or 0
+        tout = (getattr(u, "candidates_token_count", 0) or 0) + thoughts
+        cands = getattr(r, "candidates", None)
+        if cands and len(cands) > 0:
+            finish = getattr(cands[0], "finish_reason", None)
+            if finish and str(finish).upper() in ("SAFETY", "BLOCKED", "PROHIBITED_CONTENT"):
+                raise LlmError(f"gemini content blocked: {finish}", transient=False)
+            if finish and str(finish).upper() == "MAX_TOKENS":
+                raise LlmError("gemini response truncated: max tokens reached", transient=True)
+        text = (r.text or "").strip()
+        if not text:
+            raise LlmError("gemini returned empty response", transient=True)
+        return text, getattr(u, "prompt_token_count", 0) or 0, tout
 
 
 class MockProvider(Provider):
@@ -117,13 +129,93 @@ _lock = threading.Lock()
 _state = {"spent": 0.0}
 _bucket: TokenBucket | None = None
 _sem: threading.Semaphore | None = None
+_redis_client = None
+
+
+def _get_redis():
+    global _redis_client
+    if _redis_client is None:
+        try:
+            import redis
+            _redis_client = redis.Redis.from_url(get_settings().redis_url)
+        except Exception:
+            _redis_client = False
+    return _redis_client if _redis_client is not False else None
+
+
+def get_total_spent(db) -> float:
+    s = get_settings()
+    rc = _get_redis()
+    if rc:
+        try:
+            v = rc.get("docintel:llm:spent")
+            if v is not None:
+                return float(v)
+        except Exception:
+            pass
+    if db is not None:
+        try:
+            from sqlalchemy import func, select
+            from app.db.models import LlmCall
+            val = db.scalar(select(func.coalesce(func.sum(LlmCall.cost), 0.0)))
+            if val is not None:
+                return float(val)
+        except Exception:
+            pass
+    with _lock:
+        return _state["spent"]
+
+
+def record_spent(db, cost: float):
+    with _lock:
+        _state["spent"] += cost
+    rc = _get_redis()
+    if rc:
+        try:
+            rc.incrbyfloat("docintel:llm:spent", cost)
+        except Exception:
+            pass
+
+
+def _take_token():
+    s = get_settings()
+    rc = _get_redis()
+    if rc:
+        try:
+            for _ in range(60):
+                now = time.time()
+                pipe = rc.pipeline()
+                pipe.zremrangebyscore("docintel:llm:ratelimit", 0, now - 60)
+                pipe.zcard("docintel:llm:ratelimit")
+                _, count = pipe.execute()
+                if count < s.llm_rate_per_minute:
+                    rc.zadd("docintel:llm:ratelimit", {f"{now}:{time.monotonic()}": now})
+                    rc.expire("docintel:llm:ratelimit", 120)
+                    return
+                time.sleep(1.0)
+        except Exception:
+            pass
+    bucket, _ = _limits()
+    bucket.take()
+
+
+_provider_cache: dict[str, Provider] = {}
 
 
 def get_provider() -> Provider:
     s = get_settings()
-    if s.llm_provider == "gemini" and s.gemini_api_key:
-        return GeminiProvider(s.gemini_api_key)
-    return MockProvider()
+    if s.llm_provider == "gemini":
+        if not s.gemini_api_key:
+            raise ValueError("LLM_PROVIDER=gemini requires GEMINI_API_KEY")
+        if "gemini" not in _provider_cache:
+            _provider_cache["gemini"] = GeminiProvider(s.gemini_api_key)
+        return _provider_cache["gemini"]
+    elif s.llm_provider == "mock":
+        if "mock" not in _provider_cache:
+            _provider_cache["mock"] = MockProvider()
+        return _provider_cache["mock"]
+    else:
+        raise ValueError(f"Unknown LLM provider '{s.llm_provider}'")
 
 
 def _limits():
@@ -136,7 +228,9 @@ def _limits():
 
 
 def cost_of(model: str, tin: int, tout: int) -> float:
-    pin, pout = PRICES.get(model, (0.0, 0.0))
+    if model not in PRICES:
+        raise ValueError(f"Unknown pricing for model '{model}'")
+    pin, pout = PRICES[model]
     return (tin * pin + tout * pout) / 1_000_000
 
 
@@ -160,29 +254,34 @@ def call_structured(db, *, purpose: str, version: str, schema: type[BaseModel], 
         try:
             out = schema.model_validate(hit.response)
             db.add(LlmCall(prompt_version=version, model=model, purpose=purpose, input_hash=key, cached=True))
+            try:
+                db.flush()
+            except Exception:
+                pass
             return out
         except ValidationError:
             pass
 
-    bucket, sem = _limits()
+    curr_user = user
+    bad_json_retries = 0
+    _, sem = _limits()
     for attempt in (1, 2, 3, 4):
-        with _lock:
-            if _state["spent"] >= s.llm_budget_usd:
+        if provider.name != "mock":
+            if get_total_spent(db) >= s.llm_budget_usd:
                 raise BudgetExceeded()
-        bucket.take()
+            _take_token()
         t0 = time.monotonic()
         try:
             with sem:
-                text, tin, tout = provider.generate(model, system, user, schema, image)
+                text, tin, tout = provider.generate(model, system, curr_user, schema, image)
         except LlmError as e:
             if not e.transient or attempt == 4:
                 raise
-            time.sleep(5.0 * attempt)
+            time.sleep(5.0 * (2 ** (attempt - 1)))
             continue
         ms = int((time.monotonic() - t0) * 1000)
         cost = cost_of(model, tin, tout)
-        with _lock:
-            _state["spent"] += cost
+        record_spent(db, cost)
         try:
             out = schema.model_validate(json.loads(text))
         except (json.JSONDecodeError, ValidationError):
@@ -191,8 +290,18 @@ def call_structured(db, *, purpose: str, version: str, schema: type[BaseModel], 
             db.add(LlmCall(prompt_version=version, model=model, purpose=purpose, input_hash=key,
                            response=out.model_dump() if out else None,
                            tokens_in=tin, tokens_out=tout, cost=cost, latency_ms=ms, cached=False))
+            try:
+                db.flush()
+            except Exception:
+                pass
         jlog(logger, "llm call", stage=purpose, model=model, tokens_in=tin, tokens_out=tout, attempt=attempt,
              duration_ms=ms, cached=False)
         if out is not None:
             return out
+        # Spec: one retry on bad JSON
+        if bad_json_retries == 0:
+            bad_json_retries += 1
+            curr_user = user + "\n\nCRITICAL: Respond ONLY with valid JSON conforming strictly to the requested schema."
+            continue
+        break
     return None

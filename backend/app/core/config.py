@@ -18,10 +18,10 @@ class Settings(BaseSettings):
     storage_dir: str = "./data/storage"
 
     llm_provider: str = "mock"
-    llm_model: str = "gemini-3.1-flash-lite"
-    llm_vision_model: str = "gemini-3.1-flash-lite"
+    llm_model: str = "gemini-3.5-flash-lite"
+    llm_vision_model: str = "gemini-3.5-flash"
     gemini_api_key: str = ""
-    llm_budget_usd: float = 10.0
+    llm_budget_usd: float = 2.0
     llm_max_concurrency: int = 4
     llm_rate_per_minute: int = 15
 

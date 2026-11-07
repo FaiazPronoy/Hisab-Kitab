@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 HEAVY_PAGES = 60
 s = get_settings()
 
-retry_kw = dict(autoretry_for=(LlmError, ConnectionError, TimeoutError), retry_backoff=True, retry_backoff_max=60,
+retry_kw = dict(autoretry_for=(ConnectionError, TimeoutError), retry_backoff=True, retry_backoff_max=60,
                 retry_jitter=True, max_retries=3) if not s.celery_eager else dict()
 
 
@@ -41,8 +41,11 @@ def ingest(self, document_id: str):
 def _pages(self, document_id, start, end):
     try:
         last = process.run_pages(_scoped, document_id, start, end)
-    except SoftTimeLimitExceeded:
-        process.record_task_failure(_scoped, "pages", [document_id, start, end], TimeoutError("page range time limit"))
+    except SoftTimeLimitExceeded as exc:
+        process.record_task_failure(_scoped, "pages", [document_id, start, end], exc)
+        last = process.fail_page_range(_scoped, document_id, start, end, "time limit exceeded")
+        if last:
+            finalize.delay(document_id)
         raise
     if last:
         finalize.delay(document_id)
@@ -71,16 +74,15 @@ def finalize(self, document_id: str):
             db.commit()
         return
     except LlmError as e:
-        if s.celery_eager or self.request.retries >= self.max_retries:
-            with SessionLocal() as db:
-                doc = db.get(Document, document_id)
-                if doc:
-                    process.fail_document(db, doc, "LLM_ERROR", f"LLM call failed: {e}")
-                    db.commit()
-            if not s.celery_eager:
-                process.record_task_failure(_scoped, "finalize", [document_id], e)
+        if e.transient and not s.celery_eager and self.request.retries < self.max_retries:
+            raise self.retry(exc=e, countdown=int(5 * (2 ** self.request.retries)))
+        with SessionLocal() as db:
+            doc = db.get(Document, document_id)
+            if doc:
+                process.fail_document(db, doc, "LLM_ERROR", f"LLM call failed: {e}")
+                db.commit()
         if not s.celery_eager:
-            raise
+            process.record_task_failure(_scoped, "finalize", [document_id], e)
         return
     index.delay(document_id, [str(i) for i in ids])
 

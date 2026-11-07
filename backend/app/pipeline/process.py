@@ -6,7 +6,7 @@ import json
 import logging
 import time
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import psutil
 import redis
@@ -199,7 +199,7 @@ def run_pages(db_factory, doc_id, start: int, end: int) -> bool:
                 if not ok:
                     db.add(FailedTask(task_name="page", args=[str(doc_id), n], error=err or "unknown"))
                 db.commit()
-                if done + failed == count:
+                if done + failed >= count:
                     finished = True
     finally:
         if pdf is not None:
@@ -207,8 +207,34 @@ def run_pages(db_factory, doc_id, start: int, end: int) -> bool:
         rss = psutil.Process().memory_info().rss // (1024 * 1024)
         with db_factory() as db:
             doc = db.get(Document, doc_id)
-            emit(db, doc, "pages", "batch_done", message=f"pages {start}-{end} rss_mb={rss}")
-            db.commit()
+            if doc:
+                emit(db, doc, "pages", "batch_done", message=f"pages {start}-{end} rss_mb={rss}")
+                if doc.pages_done + doc.pages_failed >= doc.page_count:
+                    finished = True
+                db.commit()
+    return finished
+
+
+def fail_page_range(db_factory, doc_id, start: int, end: int, reason: str) -> bool:
+    finished = False
+    with db_factory() as db:
+        doc = db.get(Document, doc_id)
+        if not doc:
+            return False
+        for n in range(start, end + 1):
+            p = db.get(Page, (doc_id, n))
+            if p and p.status != "done":
+                p.status = "failed"
+                p.reason = reason
+                doc.pages_failed += 1
+            elif not p:
+                p = Page(document_id=doc_id, page_no=n, status="failed", reason=reason)
+                db.add(p)
+                doc.pages_failed += 1
+        db.commit()
+        db.refresh(doc)
+        if doc.pages_done + doc.pages_failed >= doc.page_count:
+            finished = True
     return finished
 
 
@@ -318,6 +344,10 @@ def _image_loader(doc):
 
 def run_finalize(db, doc_id) -> list:
     doc = db.get(Document, doc_id)
+    if not doc:
+        return []
+    if doc.status in ("done", "needs_review", "completed_with_errors", "failed"):
+        return [i.id for i in doc.invoices]
     pages = db.scalars(select(Page).where(Page.document_id == doc_id, Page.status == "done").order_by(Page.page_no)).all()
     # drop invoices from an earlier run of this document before re-extracting
     for inv in list(doc.invoices):
@@ -430,4 +460,23 @@ def record_task_failure(db_factory, name: str, args: list, exc: Exception):
         db.add(FailedTask(task_name=name, args=[str(a) for a in args], error=str(exc)[:1000],
                           traceback=traceback.format_exc()[-4000:]))
         db.commit()
+
+
+def sweep_stuck_documents(db, timeout_seconds: int = 900) -> list[str]:
+    cutoff = now() - timedelta(seconds=timeout_seconds)
+    stuck = db.scalars(
+        select(Document).where(Document.status.in_(["queued", "processing"]), Document.updated_at < cutoff)
+    ).all()
+    swept = []
+    from app.workers.tasks import finalize
+    for doc in stuck:
+        if doc.status == "processing" and doc.pages_done + doc.pages_failed >= doc.page_count and doc.page_count > 0:
+            finalize.delay(str(doc.id))
+            swept.append(f"finalized:{doc.id}")
+        else:
+            fail_document(db, doc, "STUCK_TIMEOUT", f"Document processing exceeded timeout ({timeout_seconds}s)")
+            swept.append(f"failed:{doc.id}")
+    if swept:
+        db.commit()
+    return swept
 

@@ -5,6 +5,9 @@ x-backend: &backend
   env_file: .env
   volumes:
     - storage:/data/storage
+    - ./backend/app:/app/app
+    - ./scripts:/app/scripts
+    - ./eval:/app/eval
   depends_on:
     postgres:
       condition: service_healthy

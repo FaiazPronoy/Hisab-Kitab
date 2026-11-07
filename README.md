@@ -47,10 +47,10 @@ Without `make` (plain Windows), the targets are one-liners: `docker compose run 
 | Segmentation accuracy | 1.0 | 12/12 multi-invoice PDFs split correctly |
 | Scan macro F1 (clean / medium / heavy) | 0.919 / 1.0 / 0.805 | degraded simulated scans |
 | Reconciliation recall / precision | 1.0 / 0.8125 | planted ledger discrepancies |
-| Document success rate | 0.9283 | 237 documents (corrupt files rejected cleanly) |
-| 1,000-page digital PDF (1 worker) | 34.2 pages/min | 1755.1 s wall time, peak worker RSS 130 MB |
+| Document success rate | 0.9283 | 237 documents (220 succeeded, 6 zoo rejected/failed, 11 API errors) |
+| 1,000-page digital PDF (1 worker) | 405.9 pages/min | 147.8 s wall time, peak worker RSS 373 MB |
 | 1,000-page digital PDF (2 workers) | 654.3 pages/min | 91.7 s wall time, peak worker RSS 559 MB |
-| 100-page scanned PDF (1 worker) | 6.3 pages/min | 946.7 s wall time, peak worker RSS 781 MB |
+| 100-page scanned PDF (1 worker) | 7.2 pages/min | 838.9 s wall time, peak worker RSS 596 MB |
 
 Full tables, the dataset composition and the limitations are in [EVALUATION.md](EVALUATION.md). Numbers come from one run on one machine; nothing here is extrapolated.
 
