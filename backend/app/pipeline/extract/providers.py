@@ -92,21 +92,36 @@ class GeminiProvider(Provider):
             raise LlmError(f"gemini {code}", transient=(code in (408, 429) or code >= 500) and not is_daily)
         except Exception as e:  # network errors and timeouts
             raise LlmError(type(e).__name__, transient=True)
-        u = r.usage_metadata
+        u = getattr(r, "usage_metadata", None)
         thoughts = getattr(u, "thoughts_token_count", 0) or 0
         tout = (getattr(u, "candidates_token_count", 0) or 0) + thoughts
+        tin = getattr(u, "prompt_token_count", 0) or 0
+
+        def _record_billed_tokens():
+            if tin or tout:
+                cost = cost_of(model, tin, tout)
+                record_spent(None, cost)
+
         cands = getattr(r, "candidates", None)
         if cands and len(cands) > 0:
             finish = getattr(cands[0], "finish_reason", None)
             finish_str = getattr(finish, "name", str(finish)).upper()
-            if finish and finish_str in ("SAFETY", "BLOCKED", "PROHIBITED_CONTENT"):
-                raise LlmError(f"gemini content blocked: {finish_str}", transient=False)
+            if finish and finish_str in (
+                "SAFETY", "BLOCKED", "PROHIBITED_CONTENT", "SPII",
+                "IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT", "IMAGE_RECITATION",
+                "IMAGE_OTHER", "BLOCKLIST", "LANGUAGE", "RECITATION",
+                "MALFORMED_FUNCTION_CALL", "TOO_MANY_TOOL_CALLS", "UNEXPECTED_TOOL_CALL",
+            ):
+                _record_billed_tokens()
+                raise LlmError(f"gemini content blocked or failed: {finish_str}", transient=False)
             if finish and finish_str == "MAX_TOKENS":
-                raise LlmError("gemini response truncated: max tokens reached", transient=True)
+                _record_billed_tokens()
+                raise LlmError("gemini response truncated: max tokens reached", transient=False)
         text = (r.text or "").strip()
         if not text:
+            _record_billed_tokens()
             raise LlmError("gemini returned empty response", transient=True)
-        return text, getattr(u, "prompt_token_count", 0) or 0, tout
+        return text, tin, tout
 
 
 class MockProvider(Provider):
@@ -221,6 +236,8 @@ def record_spent(db, cost: float):
     rc = _get_redis()
     if rc:
         try:
+            if not rc.exists("docintel:llm:spent"):
+                get_total_spent(db)
             rc.incrbyfloat("docintel:llm:spent", cost)
         except Exception:
             pass
@@ -254,6 +271,8 @@ def get_provider() -> Provider:
             raise ValueError("LLM_PROVIDER=gemini requires GEMINI_API_KEY")
         if s.llm_model not in PRICES:
             raise ValueError(f"Unknown or unconfigured model '{s.llm_model}' in PRICES table")
+        if s.llm_vision_model not in PRICES:
+            raise ValueError(f"Unknown or unconfigured vision model '{s.llm_vision_model}' in PRICES table")
         if "gemini" not in _provider_cache:
             _provider_cache["gemini"] = GeminiProvider(s.gemini_api_key)
         return _provider_cache["gemini"]
@@ -299,11 +318,19 @@ def call_structured(db, *, purpose: str, version: str, schema: type[BaseModel], 
     hit = None
     try:
         if db is not None:
-            hit = db.query(LlmCall).filter_by(input_hash=key, cached=False).first()
+            hit = db.query(LlmCall).filter(
+                LlmCall.input_hash == key,
+                LlmCall.cached.is_(False),
+                LlmCall.response.is_not(None)
+            ).order_by(LlmCall.id.desc()).first()
         else:
             from app.db.session import SessionLocal
             with SessionLocal() as s_db:
-                hit = s_db.query(LlmCall).filter_by(input_hash=key, cached=False).first()
+                hit = s_db.query(LlmCall).filter(
+                    LlmCall.input_hash == key,
+                    LlmCall.cached.is_(False),
+                    LlmCall.response.is_not(None)
+                ).order_by(LlmCall.id.desc()).first()
     except Exception:
         pass
     if hit and hit.response is not None:
