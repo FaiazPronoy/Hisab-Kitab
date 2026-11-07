@@ -70,20 +70,24 @@ def items_score(pred: list[dict], true: list[dict]) -> tuple[int, int, int, int,
 
 
 def score_extraction(rows: list[tuple[dict, dict | None]]) -> dict:
-    counts = {f: {"tp": 0, "fp": 0, "fn": 0, "halluc": 0, "abstain": 0, "null_true": 0} for f in FIELDS}
+    counts = {f: {"tp": 0, "fp": 0, "fn": 0, "halluc": 0, "text_halluc": 0, "abstain": 0, "null_true": 0} for f in FIELDS}
     all_key, it = 0, [0, 0, 0, 0, 0]
     for lab, inv in rows:
         flds = (inv or {}).get("fields", {})
+        doc_text = " ".join([str(line) for line in lab.get("lines", [])] + [str(v) for v in lab.values() if isinstance(v, (str, int, float))]).lower()
         ok_all = True
         for f in FIELDS:
             tv = truth_value(lab, f)
             pv = (flds.get(f) or {}).get("value")
+            raw_val = (flds.get(f) or {}).get("value_raw") or pv
             c = counts[f]
             if tv is None:
                 c["null_true"] += 1
                 if pv is not None:
                     c["halluc"] += 1
                     c["fp"] += 1
+                    if raw_val is not None and str(raw_val).lower() not in doc_text:
+                        c["text_halluc"] += 1
                 continue
             if pv is None:
                 c["fn"] += 1
@@ -93,17 +97,21 @@ def score_extraction(rows: list[tuple[dict, dict | None]]) -> dict:
             else:
                 c["fp"] += 1
                 c["fn"] += 1
+                if raw_val is not None and str(raw_val).lower() not in doc_text:
+                    c["text_halluc"] += 1
             if f in KEY and not same(f, pv, tv):
                 ok_all = False
         all_key += ok_all
         r = items_score((inv or {}).get("line_items", []), lab.get("line_items", []))
         it = [a + b for a, b in zip(it, r)]
-    per = {f: {**prf(c["tp"], c["fp"], c["fn"]), "hallucinations": c["halluc"], "abstentions": c["abstain"],
-               "n_null_truth": c["null_true"]} for f, c in counts.items()}
+    per = {f: {**prf(c["tp"], c["fp"], c["fn"]), "hallucinations": c["halluc"], "text_hallucinations": c["text_halluc"],
+               "abstentions": c["abstain"], "n_null_truth": c["null_true"]} for f, c in counts.items()}
     macro = round(statistics.mean(v["f1"] for v in per.values()), 4)
     nonnull_pred = sum(c["tp"] + c["fp"] for c in counts.values())
     return {"n": len(rows), "per_field": per, "macro_f1": macro,
             "hallucination_rate": pct(sum(c["halluc"] for c in counts.values()), sum(c["null_true"] for c in counts.values())),
+            "hallucination_rate_null_truth": pct(sum(c["halluc"] for c in counts.values()), sum(c["null_true"] for c in counts.values())),
+            "hallucination_rate_not_in_text": pct(sum(c["text_halluc"] for c in counts.values()), nonnull_pred) if nonnull_pred else 0.0,
             "wrong_value_rate": pct(sum(c["fp"] for c in counts.values()), nonnull_pred),
             "all_key_fields_correct": pct(all_key, len(rows)),
             "line_items": {**prf(it[0], it[1], it[2]), "cell_accuracy": pct(it[3], it[4])}}
@@ -112,7 +120,11 @@ def score_extraction(rows: list[tuple[dict, dict | None]]) -> dict:
 def score(results: list[dict], recon: dict, ledger: dict, metrics: dict) -> dict:
     pdf_rows, scan_rows, multi, zoo = [], {"clean": [], "medium": [], "heavy": []}, [], []
     validation = {k: {"n": 0, "caught": 0} for k in EXPECT_RULE}
-    routing = {"wrong": 0, "wrong_to_review": 0, "auto_accepted_wrong": 0, "clean": 0, "clean_flagged": 0}
+    routing = {
+        "wrong": 0, "wrong_to_review": 0,
+        "wrong_reached": 0, "wrong_reached_to_review": 0,
+        "auto_accepted_wrong": 0, "clean": 0, "clean_flagged": 0,
+    }
     by_id = {}
     for r in results:
         lab = r["label"]
@@ -141,8 +153,12 @@ def score(results: list[dict], recon: dict, ledger: dict, metrics: dict) -> dict
                     for f in KEY if truth_value(lab, f) is not None)
         if wrong or lab.get("planted"):
             routing["wrong"] += 1
+            if inv is not None:
+                routing["wrong_reached"] += 1
             if (inv or {}).get("status") == "needs_review":
                 routing["wrong_to_review"] += 1
+                if inv is not None:
+                    routing["wrong_reached_to_review"] += 1
             elif inv:
                 routing["auto_accepted_wrong"] += 1
         else:
@@ -172,14 +188,44 @@ def score(results: list[dict], recon: dict, ledger: dict, metrics: dict) -> dict
     for d in docs:
         if d.get("status") == "failed":
             code = d.get("error_code") or "PROCESSING_ERROR"
-            failure_causes[code] = failure_causes.get(code, 0) + 1
+            msg = (d.get("error_message") or "").strip()
+            lmsg = msg.lower()
+            if "429" in lmsg:
+                cat = "gemini 429 (rate limit)"
+            elif "503" in lmsg:
+                cat = "gemini 503 (unavailable)"
+            elif "safety" in lmsg:
+                cat = "safety block"
+            elif "max_tokens" in lmsg:
+                cat = "max tokens"
+            elif "timeout" in lmsg:
+                cat = "timeout"
+            elif ":" in msg:
+                cat = msg.split(":")[0].strip()
+            elif msg:
+                cat = msg[:40]
+            else:
+                cat = "unspecified"
+            key = f"{code} | {cat}"
+            failure_causes[key] = failure_causes.get(key, 0) + 1
+
+    recall_all = pct(routing["wrong_to_review"], routing["wrong"])
+    recall_reached = pct(routing["wrong_reached_to_review"], routing["wrong_reached"]) if routing["wrong_reached"] else 0.0
 
     out = {
         "extraction_digital": extraction,
         "extraction_scans": scans,
         "validation": {k: {**v, "recall": pct(v["caught"], v["n"])} for k, v in validation.items()},
-        "routing": {**routing, "routing_recall": pct(routing["wrong_to_review"], routing["wrong"]),
-                    "false_review_rate": pct(routing["clean_flagged"], routing["clean"])},
+        "routing": {
+            **routing,
+            "routing_recall": recall_all,
+            "routing_recall_all": recall_all,
+            "routing_recall_reached": recall_reached,
+            "false_review_rate": pct(routing["clean_flagged"], routing["clean"]),
+            "n_wrong_all": routing["wrong"],
+            "n_wrong_reached": routing["wrong_reached"],
+            "n_clean": routing["clean"],
+        },
         "segmentation": {"files": len(multi), "exact": seg_ok, "accuracy": pct(seg_ok, len(multi)),
                          "over": sum(m["pred"] > m["true"] for m in multi), "under": sum(m["pred"] < m["true"] for m in multi)},
         "reconciliation": rec,
@@ -192,10 +238,18 @@ def score(results: list[dict], recon: dict, ledger: dict, metrics: dict) -> dict
         "cost": metrics.get("llm"),
     }
     out["headline"] = {
-        "digital_macro_f1": extraction["macro_f1"], "digital_all_key_fields_correct": extraction["all_key_fields_correct"],
-        "hallucination_rate": extraction["hallucination_rate"], "routing_recall": out["routing"]["routing_recall"],
-        "segmentation_accuracy": out["segmentation"]["accuracy"], "success_rate": out["reliability"]["success_rate"],
+        "digital_macro_f1": extraction["macro_f1"],
+        "digital_all_key_fields_correct": extraction["all_key_fields_correct"],
+        "hallucination_rate_null_truth": extraction["hallucination_rate_null_truth"],
+        "hallucination_rate_not_in_text": extraction["hallucination_rate_not_in_text"],
+        "hallucination_rate": extraction["hallucination_rate_null_truth"],
+        "routing_recall_all": recall_all,
+        "routing_recall_reached": recall_reached,
+        "routing_recall": recall_all,
+        "segmentation_accuracy": out["segmentation"]["accuracy"],
+        "success_rate": out["reliability"]["success_rate"],
         "zoo_handled": f"{sum(z['ok'] for z in zoo)}/{len(zoo)}",
+        "confidence_intervals": "no confidence intervals",
     }
     return out
 

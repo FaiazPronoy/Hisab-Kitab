@@ -199,7 +199,10 @@ def run_pages(db_factory, doc_id, start: int, end: int) -> bool:
                 for attempt in range(1, PAGE_ATTEMPTS + 1):
                     page.attempts = (page.attempts or 0) + 1
                     try:
-                        process_page(db, doc, page, pdf=pdf, image_path=path if kind == "image" else None)
+                        if kind == "image":
+                            process_page(db, doc, page, image_path=path)
+                        else:
+                            process_page(db, doc, page, pdf=pdf)
                         ok = True
                         break
                     except SoftTimeLimitExceeded:

@@ -71,7 +71,8 @@ class GeminiProvider(Provider):
 
     def __init__(self, api_key: str):
         from google import genai
-        self.client = genai.Client(api_key=api_key)
+        from google.genai import types
+        self.client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=45000))
 
     def generate(self, model, system, user, schema, image):
         from google.genai import errors, types

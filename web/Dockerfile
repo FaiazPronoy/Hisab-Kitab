@@ -1,7 +1,7 @@
 FROM node:20-alpine AS build
 WORKDIR /web
 COPY package.json package-lock.json* ./
-RUN npm install --no-audit --no-fund
+RUN npm ci --no-audit --no-fund
 COPY . .
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
 ARG NEXT_PUBLIC_API_KEY=local-dev-key

@@ -40,19 +40,18 @@ Without `make` (plain Windows), the targets are one-liners: `docker compose run 
 
 | Metric | Measured value | Note |
 |---|---|---|
-| Digital macro F1 | 0.999 | n = 126 digital invoices |
-| All key fields correct | 0.9921 | supplier, number, date, total, currency |
+| Digital macro F1 | 0.9839 | n = 126 digital invoices |
+| All key fields correct | 0.8016 | supplier, number, date, total, currency |
 | Hallucination rate | 0.0 | ungrounded values removed by code |
-| Routing recall | 0.944 - 1.0 | 17/17 without upstream failures; 17/18 (0.944) if failed doc counted as miss |
+| Routing recall | 0.9737 | 37/38 wrong or planted invoices routed to review |
 | Segmentation accuracy | 1.0 | 12/12 multi-invoice PDFs split correctly |
-| Scan macro F1 (clean / medium / heavy) | 0.919 / 1.0 / 0.805 | degraded simulated scans |
-| Reconciliation recall / precision | 1.0 / 0.8125 | planted ledger discrepancies |
-| Document success rate | 0.9283 | 237 documents (220 succeeded, 17 pipeline/API failures; mock parser: 237/237 100%) |
+| Scan macro F1 (clean / medium / heavy) | 0.9778 / 0.9914 / 0.6942 | degraded simulated scans |
+| Reconciliation recall / precision | 1.0 / 0.7647 | planted ledger discrepancies |
+| Document success rate | 1.0 | 237 documents (237/237 succeeded; Gemini run: 220/237 0.9283) |
 | 1,000-page digital PDF (1 worker) | 405.9 pages/min | 147.8 s wall time, peak worker RSS 373 MB |
-| 1,000-page digital PDF (2 workers) | 654.3 pages/min | 91.7 s wall time, peak worker RSS 559 MB |
 | 100-page scanned PDF (1 worker) | 7.2 pages/min | 838.9 s wall time, peak worker RSS 596 MB |
 
-Full tables, the dataset composition and the limitations are in [EVALUATION.md](EVALUATION.md). Numbers come from one run on one machine; nothing here is extrapolated.
+Full tables, the dataset composition and the limitations are in [EVALUATION.md](EVALUATION.md). Numbers come from one run on one machine; nothing here is extrapolated. Big-file throughput numbers were measured with the mock extractor.
 
 ## Screenshots
 
@@ -116,7 +115,7 @@ Extraction uses Gemini Flash-Lite with structured JSON-schema output ($0.25-$0.3
 
 ## Scaling
 
-- **10x:** more workers (`docker compose up --scale worker=4`), the separate `ocr_heavy` queue keeps big scans from blocking small files, a connection pooler in front of Postgres.
+- **10x:** more workers (`docker compose up --scale worker=4 --scale worker-heavy=2`), the separate `ocr_heavy` queue keeps big scans from blocking small files, a connection pooler in front of Postgres.
 - **100x:** object storage (S3 or MinIO behind the existing `StorageService`), autoscaling workers on queue depth, managed Postgres with a read replica for search, embeddings in a batch job, LLM calls through a provider with higher rate limits.
 
 ## Production hardening (not built)

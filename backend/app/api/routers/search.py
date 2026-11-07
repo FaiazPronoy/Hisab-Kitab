@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Invoice
 from app.db.session import get_db
+from app.pipeline.extract.normalize import norm_supplier
 from app.pipeline.index import embed
 
 router = APIRouter(tags=["search"])
@@ -17,8 +18,10 @@ TOP = 50
 def _filters(supplier, currency, status, date_from, date_to, min_total, max_total, has_findings):
     where, params = ["TRUE"], {}
     if supplier:
+        s_norm = norm_supplier(supplier)
+        escaped = supplier.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         where.append("i.supplier_norm % :supplier OR i.supplier_norm ILIKE :supplier_like")
-        params.update(supplier=supplier.lower(), supplier_like=f"%{supplier.lower()}%")
+        params.update(supplier=s_norm, supplier_like=f"%{escaped}%")
     if currency:
         where.append("i.currency = :currency")
         params["currency"] = currency.upper()
@@ -49,6 +52,7 @@ def search(q: str = "", mode: str = "hybrid", supplier: str | None = None, curre
            limit: int = 20, db: Session = Depends(get_db)):
     if mode not in ("keyword", "semantic", "hybrid"):
         raise HTTPException(422, "mode must be keyword, semantic or hybrid")
+    limit = min(max(1, limit), 100)
     where, params = _filters(supplier, currency, status, date_from, date_to, min_total, max_total, has_findings)
     ranks: dict[str, dict[str, int]] = {}
     snippets: dict[str, str] = {}
@@ -73,6 +77,7 @@ def search(q: str = "", mode: str = "hybrid", supplier: str | None = None, curre
             rows = db.execute(text(f"""
                 SELECT i.id::text AS id FROM invoices i
                 WHERE ({where}) AND i.embedding IS NOT NULL
+                  AND (i.embedding <=> CAST(:v AS vector)) < 0.8
                 ORDER BY i.embedding <=> CAST(:v AS vector) LIMIT {TOP}"""), {**params, "v": str(vec[0])}).all()
             ranks["semantic"] = {r.id: n for n, r in enumerate(rows, start=1)}
 

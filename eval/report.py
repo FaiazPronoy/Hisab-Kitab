@@ -86,7 +86,9 @@ def write(s: dict, path: Path):
            [[k, v["n"], v["caught"], v["recall"]] for k, v in s["validation"].items()]),
         "",
         f"Routing recall (invoices with any wrong key field or planted problem that went to review): "
-        f"{s['routing']['routing_recall']} ({s['routing']['wrong_to_review']}/{s['routing']['wrong']}). "
+        f"{s['routing'].get('routing_recall_all', s['routing']['routing_recall'])} ({s['routing']['wrong_to_review']}/{s['routing']['wrong']}) over all wrong or planted documents; "
+        f"recall over documents reaching routing: {s['routing'].get('routing_recall_reached', s['routing']['routing_recall'])} "
+        f"({s['routing'].get('wrong_reached_to_review', s['routing']['wrong_to_review'])}/{s['routing'].get('wrong_reached', s['routing']['wrong'])}). "
         f"Auto-accepted but wrong: {s['routing']['auto_accepted_wrong']}. "
         f"Clean invoices sent to review anyway: {s['routing']['false_review_rate']} ({s['routing']['clean_flagged']}/{s['routing']['clean']}).",
         "",
@@ -111,8 +113,10 @@ def write(s: dict, path: Path):
         lines += [
             "## Failure taxonomy",
             "",
-            _t(["Failure category", "Count", "Root cause"],
-               [[k, v, "Unrecoverable LLM quota exhaustion or transient worker error" if "LLM" in k or "QUOTA" in k or "API" in k else "Ingest or validation error"]
+            _t(["Error code", "Parsed category", "Count"],
+               [[k.split(" | ")[0] if " | " in k else k,
+                 k.split(" | ")[1] if " | " in k else "-",
+                 v]
                 for k, v in s["failure_causes"].items()]),
             "",
         ]
@@ -179,6 +183,11 @@ def write(s: dict, path: Path):
         "",
         "- The main set is synthetic. Layouts are varied but cleaner than real supplier invoices.",
         "- Scans are simulated degradation of rendered PDFs, not phone photos.",
+        "- The rule parser is template-aware, which makes the baseline comparison weak against unseen real-world templates.",
+        "- The clean-versus-medium scan result is unexplained at n = 15 per tier.",
+        f"- False-review rate on clean invoices is {s['routing']['false_review_rate']} ({s['routing']['clean_flagged']}/{s['routing']['clean']}), reflecting conservative confidence thresholds.",
+        "- Small planted counts per category limit statistical confidence.",
+        "- The free Gemini tier may log or use data for product improvement.",
     ]
     if cfg.get("llm_provider") != "gemini":
         lines.append("- With the mock provider the numbers measure the rule-based parser, not an LLM.")

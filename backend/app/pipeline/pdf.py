@@ -57,19 +57,3 @@ def render(page: pymupdf.Page, dpi: int, max_pixels: int) -> Image.Image:
         zoom *= (max_pixels / px) ** 0.5
     pix = page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False)
     return Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
-
-
-def tables_text(path, page_no: int) -> str:
-    """Digital tables as row text, used as an extra hint for line items."""
-    import pdfplumber
-    try:
-        with pdfplumber.open(path, pages=[page_no]) as pdf:
-            rows = []
-            for t in pdf.pages[0].extract_tables():
-                for r in t:
-                    cells = [(c or "").replace("\n", " ").strip() for c in r]
-                    if any(cells):
-                        rows.append(" | ".join(cells))
-            return "\n".join(rows)
-    except Exception:
-        return ""

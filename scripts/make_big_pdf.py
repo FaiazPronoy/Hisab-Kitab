@@ -67,9 +67,34 @@ def build(pages: int, scanned: int, seed: int = 11):
     return [OUT / f"digital_{pages}.pdf", OUT / f"scanned_{scanned}.pdf"], i
 
 
+def detect_worker_topology() -> str:
+    try:
+        from app.workers.celery_app import celery_app
+        insp = celery_app.control.inspect(timeout=3.0)
+        stats = insp.stats() or {}
+        queues = insp.active_queues() or {}
+        topology = []
+        for w_name, s_info in sorted(stats.items()):
+            pool_info = s_info.get("pool", {})
+            max_c = pool_info.get("max-concurrency", pool_info.get("concurrency", "?"))
+            w_queues = [q.get("name") for q in queues.get(w_name, [])]
+            topology.append(f"{w_name} (queues={','.join(w_queues)}, pool={max_c})")
+        if topology:
+            return "; ".join(topology)
+    except Exception:
+        pass
+    return "1 worker (concurrency 2)"
+
+
 def upload_and_time(path: Path, api: str, key: str, workers_label: str | None = None) -> dict:
     h = {"X-API-Key": key}
-    workers = workers_label or os.environ.get("WORKERS", "1 worker (concurrency 2)")
+    workers = workers_label or detect_worker_topology()
+    provider = os.environ.get("LLM_PROVIDER", "mock")
+    try:
+        import subprocess
+        commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+    except Exception:
+        commit = "unknown"
     with httpx.Client(timeout=600) as c:
         t0 = time.time()
         with open(path, "rb") as f:
@@ -94,9 +119,14 @@ def upload_and_time(path: Path, api: str, key: str, workers_label: str | None = 
         d = c.get(f"{api}/documents/{doc_id}", headers=h).json()
         hist = c.get(f"{api}/documents/{doc_id}/history", headers=h).json()
     rss = [int(e["message"].split("rss_mb=")[1].split()[0]) for e in hist if e.get("message") and "rss_mb=" in e["message"]]
+    sampled_rss = rss[-1] if rss else None
     return {"file": path.name, "pages": d["page_count"], "status": d["status"], "wall_seconds": round(wall, 1),
             "pages_per_minute": round(d["page_count"] / wall * 60, 1), "pages_failed": d["pages_failed"],
-            "invoices": len(d.get("invoices", [])), "peak_worker_rss_mb": max(rss) if rss else None,
+            "invoices": len(d.get("invoices", [])),
+            "peak_worker_rss_mb": max(rss) if rss else None,
+            "rss_sampled_at_batch_end_mb": sampled_rss,
+            "provider": provider,
+            "commit": commit,
             "workers": workers}
 
 
@@ -115,10 +145,22 @@ if __name__ == "__main__":
         key = os.environ.get("API_KEY", "local-dev-key")
         res = [upload_and_time(p, a.api, key, workers_label=a.workers) for p in files]
         print(json.dumps(res, indent=2))
-        import subprocess
         try:
+            import subprocess
             commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
         except Exception:
             commit = "unknown"
-        data = {"commit": commit, "results": res}
-        (OUT / "measured.json").write_text(json.dumps(data, indent=2))
+        measured_file = OUT / "measured.json"
+        existing = []
+        if measured_file.exists():
+            try:
+                raw_data = json.loads(measured_file.read_text(encoding="utf-8"))
+                if isinstance(raw_data, list):
+                    existing = raw_data
+                elif isinstance(raw_data, dict) and "results" in raw_data:
+                    existing = raw_data["results"]
+            except Exception:
+                pass
+        existing.extend(res)
+        data = {"commit": commit, "results": existing}
+        measured_file.write_text(json.dumps(data, indent=2), encoding="utf-8")

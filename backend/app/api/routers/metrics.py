@@ -12,7 +12,10 @@ router = APIRouter(tags=["metrics"])
 def summary(db: Session = Depends(get_db)):
     docs = dict(db.execute(select(Document.status, func.count()).group_by(Document.status)).all())
     invs = dict(db.execute(select(Invoice.status, func.count()).group_by(Invoice.status)).all())
-    total = sum(docs.values()) or 1
+    # Exclude in-flight documents from terminal success/failure rates
+    in_flight = docs.get("queued", 0) + docs.get("processing", 0) + docs.get("finalizing", 0)
+    terminal_total = sum(docs.values()) - in_flight
+    denom = terminal_total if terminal_total > 0 else 1
     ok = docs.get("done", 0) + docs.get("needs_review", 0)
     page = db.execute(text("""
         SELECT source, count(*) n,
@@ -24,8 +27,8 @@ def summary(db: Session = Depends(get_db)):
                      .where(LlmCall.cached.is_(False))).one()
     return {
         "documents": docs, "invoices": invs,
-        "success_rate": round(ok / total, 4), "failure_rate": round(docs.get("failed", 0) / total, 4),
-        "completed_with_errors_rate": round(docs.get("completed_with_errors", 0) / total, 4),
+        "success_rate": round(ok / denom, 4), "failure_rate": round(docs.get("failed", 0) / denom, 4),
+        "completed_with_errors_rate": round(docs.get("completed_with_errors", 0) / denom, 4),
         "needs_review": invs.get("needs_review", 0),
         "page_timing_ms": {r.source: {"n": r.n, "p50": r.p50, "p95": r.p95} for r in page},
         "llm": {"calls": llm[0], "cost_usd": round(float(llm[1]), 5), "tokens": int(llm[2])},

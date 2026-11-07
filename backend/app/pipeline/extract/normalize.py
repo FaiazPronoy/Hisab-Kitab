@@ -65,7 +65,7 @@ def parse_currency(raw: str | None) -> tuple[str | None, bool]:
         return None, False
     s = str(raw).strip()
     up = s.upper()
-    for code in ISO_CODES:
+    for code in sorted(ISO_CODES):
         if re.search(rf"\b{code}\b", up):
             return code, False
     for p, code in DOLLAR_PREFIX.items():
