@@ -176,7 +176,6 @@ def _record_llm_call(**kw):
 
 
 def get_total_spent(db) -> float:
-    s = get_settings()
     rc = _get_redis()
     if rc:
         try:
@@ -299,7 +298,6 @@ def call_structured(db, *, purpose: str, version: str, schema: type[BaseModel], 
 
     hit = None
     try:
-        from app.db.models import LlmCall
         if db is not None:
             hit = db.query(LlmCall).filter_by(input_hash=key, cached=False).first()
         else:

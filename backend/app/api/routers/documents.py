@@ -21,7 +21,7 @@ from app.db.models import Document, Job, Page, ProcessingEvent
 from app.db.session import get_db
 from app.pipeline import images as image_mod
 from app.pipeline import pdf as pdf_mod
-from app.pipeline.ingest import IngestError, check_file, safe_filename, sha256_file
+from app.pipeline.ingest import IngestError, check_file, safe_filename
 from app.storage.service import storage
 
 router = APIRouter(tags=["documents"])

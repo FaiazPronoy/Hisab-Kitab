@@ -22,7 +22,7 @@ def test_reprocess_failed_document_with_done_pages(client, H, tmp_path):
         r = client.post("/api/v1/documents", files=[("files", (p.name, f))], headers=H)
     assert r.status_code == 202
     doc_id = r.json()[0]["document_id"]
-    
+
     # Wait/check document completed
     d = client.get(f"/api/v1/documents/{doc_id}", headers=H).json()
     assert d["status"] in ("done", "needs_review")

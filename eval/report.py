@@ -183,5 +183,4 @@ def write(s: dict, path: Path):
     if cfg.get("llm_provider") != "gemini":
         lines.append("- With the mock provider the numbers measure the rule-based parser, not an LLM.")
     lines.append("")
-    ]
     path.write_text("\n".join(lines), encoding="utf-8")

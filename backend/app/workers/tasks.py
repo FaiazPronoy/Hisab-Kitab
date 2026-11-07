@@ -55,12 +55,16 @@ def _pages(self, document_id, start, end):
         finalize.delay(document_id)
 
 
-@celery.task(bind=True, acks_late=True, soft_time_limit=s.page_time_limit_s * s.page_batch_size, **retry_kw)
+_batch_soft = s.page_time_limit_s * s.page_batch_size
+_batch_hard = _batch_soft + 60
+
+
+@celery.task(bind=True, acks_late=True, soft_time_limit=_batch_soft, time_limit=_batch_hard, **retry_kw)
 def pages(self, document_id: str, start: int, end: int):
     _pages(self, document_id, start, end)
 
 
-@celery.task(bind=True, acks_late=True, soft_time_limit=s.page_time_limit_s * s.page_batch_size, **retry_kw)
+@celery.task(bind=True, acks_late=True, soft_time_limit=_batch_soft, time_limit=_batch_hard, **retry_kw)
 def pages_heavy(self, document_id: str, start: int, end: int):
     _pages(self, document_id, start, end)
 

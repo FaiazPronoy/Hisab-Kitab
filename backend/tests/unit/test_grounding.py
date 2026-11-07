@@ -1,5 +1,3 @@
-from decimal import Decimal
-
 import pytest
 
 from app.pipeline.extract.grounding import number_on_page, value_in_quote
