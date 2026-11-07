@@ -87,7 +87,7 @@ def run_ingest(db, doc_id) -> list[tuple[int, int]]:
             with pdf_mod.open_pdf(path) as pdf:
                 count = pdf.page_count
         elif doc.kind == "image":
-            count = image_mod.get_image_frame_count(path)
+            count = image_mod.get_image_frame_count(path, s.max_image_pixels)
         else:
             run_sheet(db, doc, path)
             return []
@@ -127,7 +127,7 @@ def _cached_ocr(db, content_hash: str) -> Page | None:
                                          Page.source == "ocr").limit(1)).first()
 
 
-def process_page(db, doc: Document, page: Page, pdf=None, frames=None):
+def process_page(db, doc: Document, page: Page, pdf=None, frames=None, image_path=None):
     s = get_settings()
     t0 = time.monotonic()
     img = None
@@ -142,9 +142,15 @@ def process_page(db, doc: Document, page: Page, pdf=None, frames=None):
         else:
             img = pdf_mod.render(pg, s.render_dpi, s.max_image_pixels)
     else:
-        img = frames[page.page_no - 1]
-        page.width, page.height = img.size
-        page.reason = "image"
+        if frames is not None:
+            img = frames[page.page_no - 1]
+        elif image_path is not None:
+            img = image_mod.load_single_frame(image_path, page.page_no - 1, s.max_image_pixels)
+        else:
+            img = None
+        if img is not None:
+            page.width, page.height = img.size
+            page.reason = "image"
     if img is not None:
         buf = io.BytesIO()
         img.save(buf, format="PNG")
@@ -176,13 +182,11 @@ def run_pages(db_factory, doc_id, start: int, end: int) -> bool:
     """Processes pages start..end one at a time. Each page gets up to three
     tries, then is marked failed so the rest of the document carries on.
     Returns True when this call finished the last page of the document."""
-    s = get_settings()
     with db_factory() as db:
         doc = db.get(Document, doc_id)
         path = storage().path(doc.storage_key)
         kind = doc.kind
     pdf = pdf_mod.open_pdf(path) if kind == "pdf" else None
-    frames = image_mod.load_frames(path, s.max_image_pixels) if kind == "image" else None
     finished = False
     try:
         for n in range(start, end + 1):
@@ -195,7 +199,7 @@ def run_pages(db_factory, doc_id, start: int, end: int) -> bool:
                 for attempt in range(1, PAGE_ATTEMPTS + 1):
                     page.attempts = (page.attempts or 0) + 1
                     try:
-                        process_page(db, doc, page, pdf, frames)
+                        process_page(db, doc, page, pdf=pdf, image_path=path if kind == "image" else None)
                         ok = True
                         break
                     except SoftTimeLimitExceeded:
@@ -351,7 +355,7 @@ def _image_loader(doc):
                 with pdf_mod.open_pdf(path) as pdf:
                     img = pdf_mod.render(pdf[page.page_no - 1], 200, s.max_image_pixels)
             else:
-                img = image_mod.load_frames(path, s.max_image_pixels)[page.page_no - 1]
+                img = image_mod.load_single_frame(path, page.page_no - 1, s.max_image_pixels)
             buf = io.BytesIO()
             img.convert("RGB").save(buf, format="PNG")
             return buf.getvalue()

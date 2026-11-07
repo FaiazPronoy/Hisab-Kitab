@@ -27,11 +27,21 @@ def load_frames(path, max_pixels: int) -> list[Image.Image]:
     return frames
 
 
-def get_image_frame_count(path) -> int:
+def get_image_frame_count(path, max_pixels: int | None = None) -> int:
     """Return number of frames in an image file (e.g. multi-frame TIFF) without decoding pixels."""
+    if max_pixels is not None:
+        Image.MAX_IMAGE_PIXELS = max_pixels
+    else:
+        from app.core.config import get_settings
+        Image.MAX_IMAGE_PIXELS = get_settings().max_image_pixels
     try:
         with Image.open(path) as img:
-            return getattr(img, "n_frames", 1)
+            count = getattr(img, "n_frames", 1)
+            if count > MAX_FRAMES:
+                raise IngestError("TOO_MANY_PAGES", f"The image has {count} frames; the limit is {MAX_FRAMES}.")
+            return count
+    except IngestError:
+        raise
     except Image.DecompressionBombError:
         raise IngestError("DECOMPRESSION_BOMB", "The image is too large to process safely.")
     except Exception:
