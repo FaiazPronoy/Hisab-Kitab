@@ -6,6 +6,7 @@ x-backend: &backend
   volumes:
     - storage:/data/storage
     - ./backend/app:/app/app
+    - ./backend/tests:/app/tests
     - ./scripts:/app/scripts
     - ./eval:/app/eval
   depends_on:
@@ -32,6 +33,8 @@ services:
 
   redis:
     image: redis:7-alpine
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 3s
@@ -54,7 +57,15 @@ services:
   worker:
     <<: *backend
     pull_policy: never
-    command: celery -A app.workers.celery_app worker -Q ingest,ocr,ocr_heavy,extract,index --concurrency=2 --loglevel=INFO
+    command: celery -A app.workers.celery_app worker -Q ingest,ocr,extract,index --concurrency=2 --loglevel=INFO
+    depends_on:
+      api:
+        condition: service_healthy
+
+  worker-heavy:
+    <<: *backend
+    pull_policy: never
+    command: celery -A app.workers.celery_app worker -Q ocr_heavy --concurrency=1 --loglevel=INFO
     depends_on:
       api:
         condition: service_healthy
@@ -73,3 +84,4 @@ services:
 volumes:
   pgdata:
   storage:
+  redis_data:

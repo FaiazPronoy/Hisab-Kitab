@@ -30,8 +30,12 @@ def ingest(self, document_id: str):
     with SessionLocal() as db:
         ranges = process.run_ingest(db, document_id)
         doc = db.get(Document, document_id)
-        heavy = doc.page_count > HEAVY_PAGES
+        heavy = (doc.page_count or 0) > HEAVY_PAGES
+        all_pages_done = (doc.page_count or 0) > 0 and (doc.pages_done + doc.pages_failed >= doc.page_count)
         db.commit()
+    if all_pages_done and not ranges:
+        finalize.delay(document_id)
+        return
     # big scans go to their own queue so a one-page receipt never waits behind them
     task = pages_heavy if heavy else pages
     for a, b in ranges:

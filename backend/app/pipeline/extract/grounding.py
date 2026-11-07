@@ -2,8 +2,23 @@
 its quote is really on the cited page and the value can be read from the
 quote. Anything else becomes null with null_reason "unverified"."""
 import re
+from decimal import Decimal
 
 from rapidfuzz import fuzz
+
+from app.pipeline.extract.normalize import parse_amount
+
+NUMERIC_TOKENS = re.compile(r"[-+]?[$€£৳₹]?\s*\d[\d.,'  ]*\d|\b\d+\b")
+
+
+def _extract_decimals(text: str) -> list[Decimal]:
+    out = []
+    for token in NUMERIC_TOKENS.findall(text or ""):
+        for st in ("us", "eu"):
+            d = parse_amount(token, style=st)
+            if d is not None and d not in out:
+                out.append(d)
+    return out
 
 
 def _ws(s: str) -> str:
@@ -28,9 +43,12 @@ def value_in_quote(field: str, value: str, quote: str, kind: str) -> bool:
     if not value or not quote:
         return False
     if kind == "amount":
+        val_decs = _extract_decimals(value)
+        quote_decs = _extract_decimals(quote)
+        if val_decs and quote_decs:
+            return any(vd in quote_decs for vd in val_decs)
         vd, qd = _digits(value), _digits(quote)
-        # 1,250.00 printed, model wrote 1250 or 1250.00: compare without trailing zeros
-        return bool(vd) and (vd in qd or vd.rstrip("0") in qd)
+        return bool(vd) and vd in qd
     if kind == "date":
         nums = re.findall(r"\d+", value)
         qn = re.findall(r"\d+", quote)
@@ -40,13 +58,20 @@ def value_in_quote(field: str, value: str, quote: str, kind: str) -> bool:
 
 
 def number_on_page(value: str, page_text: str) -> bool:
-    """The value's digits must appear in one printed line, in order."""
+    """The value's digits or decimal amount must appear in one printed line."""
+    val_decs = _extract_decimals(value)
+    if val_decs:
+        for line in (page_text or "").splitlines():
+            line_decs = _extract_decimals(line)
+            if any(vd in line_decs for vd in val_decs):
+                return True
+        return False
     vd = _digits(value)
     if not vd:
         return False
     for line in (page_text or "").splitlines():
         ld = _digits(line)
-        if vd in ld or vd.rstrip("0") in ld:
+        if vd in ld:
             return True
     return False
 

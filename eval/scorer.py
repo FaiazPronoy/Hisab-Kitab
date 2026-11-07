@@ -167,6 +167,12 @@ def score(results: list[dict], recon: dict, ledger: dict, metrics: dict) -> dict
     extraction = score_extraction(pdf_rows)
     scans = {t: score_extraction(rows) for t, rows in scan_rows.items() if rows}
     seg_ok = sum(m["true"] == m["pred"] for m in multi)
+    failure_causes = {}
+    for d in docs:
+        if d.get("status") == "failed":
+            code = d.get("error_code") or "PROCESSING_ERROR"
+            failure_causes[code] = failure_causes.get(code, 0) + 1
+
     out = {
         "extraction_digital": extraction,
         "extraction_scans": scans,
@@ -177,6 +183,7 @@ def score(results: list[dict], recon: dict, ledger: dict, metrics: dict) -> dict
                          "over": sum(m["pred"] > m["true"] for m in multi), "under": sum(m["pred"] < m["true"] for m in multi)},
         "reconciliation": rec,
         "failure_zoo": zoo,
+        "failure_causes": failure_causes,
         "reliability": {"documents": len(docs), "success_rate": pct(sum(s in ("done", "needs_review") for s in statuses), len(docs)),
                         "completed_with_errors": statuses.count("completed_with_errors"), "failed": statuses.count("failed")},
         "performance": {"doc_seconds_p50": _q(times, 0.5), "doc_seconds_p95": _q(times, 0.95),

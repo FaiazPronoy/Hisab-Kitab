@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 # USD per 1M tokens (input, output), checked against the Gemini pricing page on 2026-11-06
 PRICES = {
+    "gemini-3.6-flash": (1.50, 7.50),
     "gemini-3.5-flash-lite": (0.30, 2.50),
     "gemini-3.5-flash": (1.50, 9.00),
     "gemini-3.1-flash-lite": (0.25, 1.50),
@@ -80,6 +81,7 @@ class GeminiProvider(Provider):
         cfg = types.GenerateContentConfig(
             system_instruction=system or None, temperature=0,
             response_mime_type="application/json", response_schema=schema,
+            max_output_tokens=4096,
         )
         try:
             r = self.client.models.generate_content(model=model, contents=parts, config=cfg)
@@ -96,9 +98,10 @@ class GeminiProvider(Provider):
         cands = getattr(r, "candidates", None)
         if cands and len(cands) > 0:
             finish = getattr(cands[0], "finish_reason", None)
-            if finish and str(finish).upper() in ("SAFETY", "BLOCKED", "PROHIBITED_CONTENT"):
-                raise LlmError(f"gemini content blocked: {finish}", transient=False)
-            if finish and str(finish).upper() == "MAX_TOKENS":
+            finish_str = getattr(finish, "name", str(finish)).upper()
+            if finish and finish_str in ("SAFETY", "BLOCKED", "PROHIBITED_CONTENT"):
+                raise LlmError(f"gemini content blocked: {finish_str}", transient=False)
+            if finish and finish_str == "MAX_TOKENS":
                 raise LlmError("gemini response truncated: max tokens reached", transient=True)
         text = (r.text or "").strip()
         if not text:
@@ -143,6 +146,35 @@ def _get_redis():
     return _redis_client if _redis_client is not False else None
 
 
+SLIDING_WINDOW_LUA = """
+local key = KEYS[1]
+local now = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
+local limit = tonumber(ARGV[3])
+local clear_before = now - window
+redis.call('ZREMRANGEBYSCORE', key, 0, clear_before)
+local current = redis.call('ZCARD', key)
+if current < limit then
+    redis.call('ZADD', key, now, ARGV[4])
+    redis.call('EXPIRE', key, window * 2)
+    return 1
+else
+    return 0
+end
+"""
+
+
+def _record_llm_call(**kw):
+    try:
+        from app.db.models import LlmCall
+        from app.db.session import SessionLocal
+        with SessionLocal() as s:
+            s.add(LlmCall(**kw))
+            s.commit()
+    except Exception:
+        pass
+
+
 def get_total_spent(db) -> float:
     s = get_settings()
     rc = _get_redis()
@@ -151,6 +183,13 @@ def get_total_spent(db) -> float:
             v = rc.get("docintel:llm:spent")
             if v is not None:
                 return float(v)
+            if db is not None:
+                from sqlalchemy import func, select
+                from app.db.models import LlmCall
+                val = db.scalar(select(func.coalesce(func.sum(LlmCall.cost), 0.0)))
+                spent = float(val or 0.0)
+                rc.set("docintel:llm:spent", spent)
+                return spent
         except Exception:
             pass
     if db is not None:
@@ -164,6 +203,17 @@ def get_total_spent(db) -> float:
             pass
     with _lock:
         return _state["spent"]
+
+
+def reset_budget_counter():
+    with _lock:
+        _state["spent"] = 0.0
+    rc = _get_redis()
+    if rc:
+        try:
+            rc.delete("docintel:llm:spent")
+        except Exception:
+            pass
 
 
 def record_spent(db, cost: float):
@@ -184,13 +234,9 @@ def _take_token():
         try:
             for _ in range(60):
                 now = time.time()
-                pipe = rc.pipeline()
-                pipe.zremrangebyscore("docintel:llm:ratelimit", 0, now - 60)
-                pipe.zcard("docintel:llm:ratelimit")
-                _, count = pipe.execute()
-                if count < s.llm_rate_per_minute:
-                    rc.zadd("docintel:llm:ratelimit", {f"{now}:{time.monotonic()}": now})
-                    rc.expire("docintel:llm:ratelimit", 120)
+                member = f"{now}:{time.monotonic()}"
+                allowed = rc.eval(SLIDING_WINDOW_LUA, 1, "docintel:llm:ratelimit", str(now), 60, s.llm_rate_per_minute, member)
+                if allowed == 1:
                     return
                 time.sleep(1.0)
         except Exception:
@@ -207,6 +253,8 @@ def get_provider() -> Provider:
     if s.llm_provider == "gemini":
         if not s.gemini_api_key:
             raise ValueError("LLM_PROVIDER=gemini requires GEMINI_API_KEY")
+        if s.llm_model not in PRICES:
+            raise ValueError(f"Unknown or unconfigured model '{s.llm_model}' in PRICES table")
         if "gemini" not in _provider_cache:
             _provider_cache["gemini"] = GeminiProvider(s.gemini_api_key)
         return _provider_cache["gemini"]
@@ -249,15 +297,21 @@ def call_structured(db, *, purpose: str, version: str, schema: type[BaseModel], 
         h.update(image)
     key = h.hexdigest()
 
-    hit = db.query(LlmCall).filter_by(input_hash=key, cached=False).first() if db is not None else None
+    hit = None
+    try:
+        from app.db.models import LlmCall
+        if db is not None:
+            hit = db.query(LlmCall).filter_by(input_hash=key, cached=False).first()
+        else:
+            from app.db.session import SessionLocal
+            with SessionLocal() as s_db:
+                hit = s_db.query(LlmCall).filter_by(input_hash=key, cached=False).first()
+    except Exception:
+        pass
     if hit and hit.response is not None:
         try:
             out = schema.model_validate(hit.response)
-            db.add(LlmCall(prompt_version=version, model=model, purpose=purpose, input_hash=key, cached=True))
-            try:
-                db.flush()
-            except Exception:
-                pass
+            _record_llm_call(prompt_version=version, model=model, purpose=purpose, input_hash=key, cached=True)
             return out
         except ValidationError:
             pass
@@ -286,14 +340,9 @@ def call_structured(db, *, purpose: str, version: str, schema: type[BaseModel], 
             out = schema.model_validate(json.loads(text))
         except (json.JSONDecodeError, ValidationError):
             out = None
-        if db is not None:
-            db.add(LlmCall(prompt_version=version, model=model, purpose=purpose, input_hash=key,
-                           response=out.model_dump() if out else None,
-                           tokens_in=tin, tokens_out=tout, cost=cost, latency_ms=ms, cached=False))
-            try:
-                db.flush()
-            except Exception:
-                pass
+        _record_llm_call(prompt_version=version, model=model, purpose=purpose, input_hash=key,
+                         response=out.model_dump() if out else None,
+                         tokens_in=tin, tokens_out=tout, cost=cost, latency_ms=ms, cached=False)
         jlog(logger, "llm call", stage=purpose, model=model, tokens_in=tin, tokens_out=tout, attempt=attempt,
              duration_ms=ms, cached=False)
         if out is not None:

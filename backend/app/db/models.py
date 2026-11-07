@@ -62,7 +62,7 @@ class Page(Base):
     width: Mapped[float | None] = mapped_column(Float)
     height: Mapped[float | None] = mapped_column(Float)
     image_key: Mapped[str | None] = mapped_column(String(120))
-    content_hash: Mapped[str | None] = mapped_column(String(64))
+    content_hash: Mapped[str | None] = mapped_column(String(64), index=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
     tsv: Mapped[str | None] = mapped_column(TSVECTOR)

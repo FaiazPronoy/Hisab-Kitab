@@ -115,4 +115,10 @@ if __name__ == "__main__":
         key = os.environ.get("API_KEY", "local-dev-key")
         res = [upload_and_time(p, a.api, key, workers_label=a.workers) for p in files]
         print(json.dumps(res, indent=2))
-        (OUT / "measured.json").write_text(json.dumps(res, indent=2))
+        import subprocess
+        try:
+            commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+        except Exception:
+            commit = "unknown"
+        data = {"commit": commit, "results": res}
+        (OUT / "measured.json").write_text(json.dumps(data, indent=2))

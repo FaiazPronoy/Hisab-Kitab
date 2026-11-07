@@ -9,8 +9,10 @@ celery = Celery("docintel", broker=s.redis_url, backend=None, include=["app.work
 celery.conf.update(
     task_acks_late=True,
     task_reject_on_worker_lost=True,
+    task_time_limit=300,
+    task_soft_time_limit=240,
     worker_prefetch_multiplier=1,
-    worker_max_memory_per_child=600000,
+    worker_max_memory_per_child=750000,
     broker_transport_options={"visibility_timeout": 7200},
     task_default_queue="ingest",
     task_routes={

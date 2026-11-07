@@ -6,7 +6,7 @@ from datetime import date
 
 from app.core.config import validation_config
 from app.pipeline.extract import prompts
-from app.pipeline.extract.grounding import _digits, ground, quote_score, suspicious, value_in_quote
+from app.pipeline.extract.grounding import _digits, _extract_decimals, ground, quote_score, suspicious, value_in_quote
 from app.pipeline.extract.normalize import (
     infer_day_first, norm_invoice_number, norm_supplier, number_style, parse_amount, parse_currency, parse_date,
 )
@@ -73,10 +73,14 @@ def extract_segment(db, pages, image_loader=None) -> dict:
                                    system=prompts.EXTRACT_SYSTEM, user=prompts.EXTRACT_USER.format(hints="none", document=chunk))
             if part and part.line_items:
                 all_items.extend(part.line_items)
+            elif part is None:
+                flags.append("chunk_extraction_failed")
         seen = set()
         deduped = []
         for it in all_items:
-            key = ((it.description or "").strip().lower(), (it.amount or "").strip(), (it.quantity or "").strip())
+            key = it.line_id.strip() if it.line_id and it.line_id.strip() else (
+                (it.description or "").strip().lower(), (it.amount or "").strip(), (it.quantity or "").strip()
+            )
             if key not in seen:
                 seen.add(key)
                 deduped.append(it)
@@ -156,12 +160,20 @@ def normalize(fields: dict, out: InvoiceOut, full_text: str, lines: list, flags:
         q_score = quote_score(q, full_text) if q else 0.0
         q_present = q_score >= min_q
         val_present = True
-        if it.amount:
-            val_present = value_in_quote("amount", it.amount, q, "amount")
-        elif it.unit_price:
-            val_present = value_in_quote("amount", it.unit_price, q, "amount")
-        elif it.quantity:
-            val_present = _digits(it.quantity) in _digits(q)
+        if it.amount and not value_in_quote("amount", it.amount, q, "amount"):
+            val_present = False
+        if it.unit_price and not value_in_quote("unit_price", it.unit_price, q, "amount"):
+            val_present = False
+        if it.quantity:
+            q_decs = _extract_decimals(q)
+            it_q_decs = _extract_decimals(it.quantity)
+            if q_decs and it_q_decs:
+                if not any(qd in q_decs for qd in it_q_decs):
+                    val_present = False
+            else:
+                qd_str = _digits(it.quantity)
+                if not (qd_str and qd_str in _digits(q)):
+                    val_present = False
         ok = bool(q) and q_present and val_present
         items.append({
             "idx": i, "description": it.description,

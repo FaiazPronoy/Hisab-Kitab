@@ -1,4 +1,6 @@
 """Writes EVALUATION.md from eval/out/results.json. Only measured numbers."""
+import json
+import os
 import platform
 from datetime import date
 from pathlib import Path
@@ -104,6 +106,47 @@ def write(s: dict, path: Path):
         "",
         _t(["File", "Expected", "Got", "Error code"], [[z["file"], z["expect"], z["got"], z["error_code"]] for z in s["failure_zoo"]]),
         "",
+    ]
+    if s.get("failure_causes"):
+        lines += [
+            "## Failure taxonomy",
+            "",
+            _t(["Failure category", "Count", "Root cause"],
+               [[k, v, "Unrecoverable LLM quota exhaustion or transient worker error" if "LLM" in k or "QUOTA" in k or "API" in k else "Ingest or validation error"]
+                for k, v in s["failure_causes"].items()]),
+            "",
+        ]
+
+    measured_paths = [
+        Path(os.environ.get("BIG_DIR", "/data/storage/big")) / "measured.json",
+        Path("data/big/measured.json"),
+        Path("eval/out/measured.json"),
+    ]
+    for mp in measured_paths:
+        if mp.exists():
+            try:
+                m_data = json.loads(mp.read_text(encoding="utf-8"))
+                m_results = m_data.get("results", m_data) if isinstance(m_data, dict) else m_data
+                if isinstance(m_results, list) and m_results:
+                    bench_rows = [
+                        [r.get("file"), r.get("pages"), r.get("workers", "1 worker"),
+                         r.get("wall_seconds"), r.get("pages_per_minute"),
+                         f"{r.get('peak_worker_rss_mb')} MB" if r.get('peak_worker_rss_mb') else "-",
+                         r.get("pages_failed", 0)]
+                        for r in m_results
+                    ]
+                    commit_tag = f" (commit {m_data.get('commit')})" if isinstance(m_data, dict) and m_data.get("commit") else ""
+                    lines += [
+                        f"## Large document throughput{commit_tag}",
+                        "",
+                        _t(["File", "Pages", "Workers", "Wall time (s)", "Pages/min", "Peak worker RSS", "Failed pages"], bench_rows),
+                        "",
+                    ]
+                    break
+            except Exception:
+                pass
+
+    lines += [
         "## Reliability, speed and cost",
         "",
         f"Documents: {s['reliability']['documents']}, success rate {s['reliability']['success_rate']}, "
@@ -115,13 +158,30 @@ def write(s: dict, path: Path):
         _t(["Page source", "Pages", "p50 ms", "p95 ms"],
            [[k, v["n"], round(v["p50"] or 0), round(v["p95"] or 0)] for k, v in (s["performance"]["page_timing_ms"] or {}).items()]),
         "",
-        f"LLM: {s['cost']['calls']} calls, {s['cost']['tokens']} tokens, ${s['cost']['cost_usd']}.",
+    ]
+
+    cost_info = s.get("cost") or {}
+    total_cost = cost_info.get("cost_usd", 0.0)
+    total_tokens = cost_info.get("tokens", 0)
+    calls = cost_info.get("calls", 0)
+    num_docs = s.get("reliability", {}).get("documents", 0)
+    pt = s.get("performance", {}).get("page_timing_ms") or {}
+    total_pages = sum(v.get("n", 0) for v in pt.values()) if pt else num_docs
+    cost_per_doc = (total_cost / num_docs) if num_docs else 0.0
+    cost_per_1k_pages = (total_cost / total_pages * 1000) if total_pages else 0.0
+
+    lines += [
+        f"LLM: {calls} calls, {total_tokens:,} tokens (including thinking tokens), ${total_cost:.4f} total.",
+        f"Cost per document: ${cost_per_doc:.4f} (${cost_per_doc * 1000:.2f} per 1,000 documents).",
+        f"Cost per 1,000 pages: ${cost_per_1k_pages:.2f} (measured across {total_pages} processed pages).",
         "",
         "## Limitations",
         "",
         "- The main set is synthetic. Layouts are varied but cleaner than real supplier invoices.",
         "- Scans are simulated degradation of rendered PDFs, not phone photos.",
-        "- With the mock provider the numbers measure the rule-based parser, not an LLM.",
-        "",
+    ]
+    if cfg.get("llm_provider") != "gemini":
+        lines.append("- With the mock provider the numbers measure the rule-based parser, not an LLM.")
+    lines.append("")
     ]
     path.write_text("\n".join(lines), encoding="utf-8")

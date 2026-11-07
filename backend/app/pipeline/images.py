@@ -27,6 +27,17 @@ def load_frames(path, max_pixels: int) -> list[Image.Image]:
     return frames
 
 
+def get_image_frame_count(path) -> int:
+    """Return number of frames in an image file (e.g. multi-frame TIFF) without decoding pixels."""
+    try:
+        with Image.open(path) as img:
+            return getattr(img, "n_frames", 1)
+    except Image.DecompressionBombError:
+        raise IngestError("DECOMPRESSION_BOMB", "The image is too large to process safely.")
+    except Exception:
+        raise IngestError("CORRUPT_FILE", "The image is damaged and cannot be opened.")
+
+
 def load_single_frame(path, frame_idx: int, max_pixels: int) -> Image.Image:
     """Load only the requested frame (0-indexed) without decoding all frames."""
     Image.MAX_IMAGE_PIXELS = max_pixels

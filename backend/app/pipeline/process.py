@@ -28,6 +28,12 @@ from app.pipeline.extract.providers import call_structured
 from app.pipeline.extract.run import extract_segment, typed
 from app.pipeline.extract.schema import SCALARS, ColumnMapOut, SameInvoiceOut
 from app.pipeline.ingest import IngestError
+
+try:
+    from celery.exceptions import SoftTimeLimitExceeded
+except ImportError:
+    class SoftTimeLimitExceeded(Exception):
+        pass
 from app.pipeline.layout import build_lines, cells_to_lines
 from app.pipeline.ocr.run import ocr_image
 from app.pipeline.segment import segment
@@ -81,7 +87,7 @@ def run_ingest(db, doc_id) -> list[tuple[int, int]]:
             with pdf_mod.open_pdf(path) as pdf:
                 count = pdf.page_count
         elif doc.kind == "image":
-            count = len(image_mod.load_frames(path, s.max_image_pixels))
+            count = image_mod.get_image_frame_count(path)
         else:
             run_sheet(db, doc, path)
             return []
@@ -91,10 +97,17 @@ def run_ingest(db, doc_id) -> list[tuple[int, int]]:
     if count > s.max_pages:
         fail_document(db, doc, "TOO_MANY_PAGES", f"The file has {count} pages; the limit is {s.max_pages}.")
         return []
-    doc.page_count, doc.pages_done, doc.pages_failed = count, 0, 0
-    existing = {p.page_no for p in db.scalars(select(Page).where(Page.document_id == doc.id))}
+    existing_pages = list(db.scalars(select(Page).where(Page.document_id == doc.id)))
+    existing = {p.page_no for p in existing_pages}
+    done_count = sum(1 for p in existing_pages if p.status == "done")
+    failed_count = sum(1 for p in existing_pages if p.status == "failed")
+    doc.page_count = count
+    doc.pages_done = done_count
+    doc.pages_failed = failed_count
     db.add_all(Page(document_id=doc.id, page_no=n) for n in range(1, count + 1) if n not in existing)
     emit(db, doc, "ingest", "done", message=f"{count} pages")
+    if done_count + failed_count >= count and count > 0:
+        return []
     b = s.page_batch_size
     return [(a, min(a + b - 1, count)) for a in range(1, count + 1, b)]
 
@@ -185,6 +198,8 @@ def run_pages(db_factory, doc_id, start: int, end: int) -> bool:
                         process_page(db, doc, page, pdf, frames)
                         ok = True
                         break
+                    except SoftTimeLimitExceeded:
+                        raise
                     except Exception as e:
                         err = f"{type(e).__name__}: {e}"[:500]
                         time.sleep(0.5 * attempt)
@@ -199,7 +214,7 @@ def run_pages(db_factory, doc_id, start: int, end: int) -> bool:
                 if not ok:
                     db.add(FailedTask(task_name="page", args=[str(doc_id), n], error=err or "unknown"))
                 db.commit()
-                if done + failed >= count:
+                if done + failed == count:
                     finished = True
     finally:
         if pdf is not None:
@@ -209,8 +224,6 @@ def run_pages(db_factory, doc_id, start: int, end: int) -> bool:
             doc = db.get(Document, doc_id)
             if doc:
                 emit(db, doc, "pages", "batch_done", message=f"pages {start}-{end} rss_mb={rss}")
-                if doc.pages_done + doc.pages_failed >= doc.page_count:
-                    finished = True
                 db.commit()
     return finished
 
@@ -346,13 +359,21 @@ def run_finalize(db, doc_id) -> list:
     doc = db.get(Document, doc_id)
     if not doc:
         return []
-    if doc.status in ("done", "needs_review", "completed_with_errors", "failed"):
+    # Atomic claim: transition to finalizing to prevent duplicate finalize executions
+    row = db.execute(
+        text("UPDATE documents SET status = 'finalizing', updated_at = now() "
+             "WHERE id = :id AND status IN ('processing', 'queued') RETURNING id"),
+        {"id": doc_id}
+    ).first()
+    if not row:
         return [i.id for i in doc.invoices]
+    db.commit()
+    doc = db.get(Document, doc_id)
     pages = db.scalars(select(Page).where(Page.document_id == doc_id, Page.status == "done").order_by(Page.page_no)).all()
     # drop invoices from an earlier run of this document before re-extracting
     for inv in list(doc.invoices):
         db.delete(inv)
-    db.flush()
+    db.commit()
     by_no = {p.page_no: p for p in pages}
     texts = [by_no[n].text if n in by_no else "" for n in range(1, doc.page_count + 1)]
     segs = segment(texts, ask_same=_ask_same(db))
@@ -367,8 +388,10 @@ def run_finalize(db, doc_id) -> list:
             vision_left -= 1
         _save_invoice(db, doc, seg_pages, result, page_start=sg["page_start"], page_end=sg["page_end"],
                       boundary_confidence=sg["confidence"])
+        db.commit()
     emit(db, doc, "extract", "done", message=f"{len(segs)} invoices")
     finish_document(db, doc)
+    db.commit()
     return [i.id for i in doc.invoices]
 
 
@@ -465,12 +488,19 @@ def record_task_failure(db_factory, name: str, args: list, exc: Exception):
 def sweep_stuck_documents(db, timeout_seconds: int = 900) -> list[str]:
     cutoff = now() - timedelta(seconds=timeout_seconds)
     stuck = db.scalars(
-        select(Document).where(Document.status.in_(["queued", "processing"]), Document.updated_at < cutoff)
+        select(Document).where(Document.status.in_(["queued", "processing", "finalizing"]), Document.updated_at < cutoff)
     ).all()
     swept = []
     from app.workers.tasks import finalize
     for doc in stuck:
-        if doc.status == "processing" and doc.pages_done + doc.pages_failed >= doc.page_count and doc.page_count > 0:
+        last_event = db.scalars(
+            select(ProcessingEvent.created_at).where(ProcessingEvent.document_id == doc.id).order_by(ProcessingEvent.id.desc()).limit(1)
+        ).first()
+        if last_event and last_event >= cutoff:
+            continue
+        if doc.pages_done + doc.pages_failed >= doc.page_count and doc.page_count > 0:
+            doc.status = "processing"
+            db.commit()
             finalize.delay(str(doc.id))
             swept.append(f"finalized:{doc.id}")
         else:
