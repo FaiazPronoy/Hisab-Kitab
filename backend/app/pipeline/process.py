@@ -24,7 +24,7 @@ from app.pipeline.extract import prompts
 from app.pipeline.extract.normalize import (
     infer_day_first, number_style, parse_amount, parse_currency, parse_date,
 )
-from app.pipeline.extract.providers import call_structured
+from app.pipeline.extract.providers import BudgetExceeded, LlmError, call_structured
 from app.pipeline.extract.run import extract_segment, typed
 from app.pipeline.extract.schema import SCALARS, ColumnMapOut, SameInvoiceOut
 from app.pipeline.ingest import IngestError
@@ -236,10 +236,12 @@ def fail_page_range(db_factory, doc_id, start: int, end: int, reason: str) -> bo
             return False
         for n in range(start, end + 1):
             p = db.get(Page, (doc_id, n))
-            if p and p.status != "done":
+            if p and p.status not in ("done", "failed"):
                 p.status = "failed"
                 p.reason = reason
                 doc.pages_failed += 1
+            elif p and p.status == "failed":
+                p.reason = reason
             elif not p:
                 p = Page(document_id=doc_id, page_no=n, status="failed", reason=reason)
                 db.add(p)
@@ -330,9 +332,12 @@ def _invoice_from_record(db, doc, sh, rec):
 
 def _ask_same(db):
     def ask(a, b):
-        out = call_structured(db, purpose="boundary", version=prompts.BOUNDARY_VERSION, schema=SameInvoiceOut,
-                              user=prompts.BOUNDARY_USER.format(a=a, b=b))
-        return (out.same_invoice, out.confidence) if out else (True, 0.5)
+        try:
+            out = call_structured(db, purpose="boundary", version=prompts.BOUNDARY_VERSION, schema=SameInvoiceOut,
+                                  user=prompts.BOUNDARY_USER.format(a=a, b=b))
+            return (out.same_invoice, out.confidence) if out else (True, 0.5)
+        except LlmError:
+            return (True, 0.5)
     return ask
 
 
@@ -355,44 +360,54 @@ def _image_loader(doc):
     return load
 
 
-def run_finalize(db, doc_id) -> list:
+def run_finalize(db, doc_id, lease_seconds: int = 300) -> list:
     doc = db.get(Document, doc_id)
     if not doc:
         return []
     # Atomic claim: transition to finalizing to prevent duplicate finalize executions
+    # Also allow recovering stuck finalizing docs where lease has expired
     row = db.execute(
         text("UPDATE documents SET status = 'finalizing', updated_at = now() "
-             "WHERE id = :id AND status IN ('processing', 'queued') RETURNING id"),
-        {"id": doc_id}
+             "WHERE id = :id AND (status IN ('processing', 'queued') "
+             "OR (status = 'finalizing' AND updated_at < now() - (:lease || ' seconds')::interval)) "
+             "RETURNING id"),
+        {"id": doc_id, "lease": lease_seconds}
     ).first()
     if not row:
         return [i.id for i in doc.invoices]
     db.commit()
     doc = db.get(Document, doc_id)
-    pages = db.scalars(select(Page).where(Page.document_id == doc_id, Page.status == "done").order_by(Page.page_no)).all()
-    # drop invoices from an earlier run of this document before re-extracting
-    for inv in list(doc.invoices):
-        db.delete(inv)
-    db.commit()
-    by_no = {p.page_no: p for p in pages}
-    texts = [by_no[n].text if n in by_no else "" for n in range(1, doc.page_count + 1)]
-    segs = segment(texts, ask_same=_ask_same(db))
-    loader = _image_loader(doc)
-    vision_left = max(1, doc.page_count // 10)
-    for sg in segs:
-        seg_pages = [by_no[n] for n in range(sg["page_start"], sg["page_end"] + 1) if n in by_no]
-        if not seg_pages:
-            continue
-        result = extract_segment(db, seg_pages, image_loader=loader if vision_left > 0 else None)
-        if "vision_used" in result["flags"]:
-            vision_left -= 1
-        _save_invoice(db, doc, seg_pages, result, page_start=sg["page_start"], page_end=sg["page_end"],
-                      boundary_confidence=sg["confidence"])
+    try:
+        pages = db.scalars(select(Page).where(Page.document_id == doc_id, Page.status == "done").order_by(Page.page_no)).all()
+        by_no = {p.page_no: p for p in pages}
+        texts = [by_no[n].text if n in by_no else "" for n in range(1, doc.page_count + 1)]
+        segs = segment(texts, ask_same=_ask_same(db))
+        loader = _image_loader(doc)
+        vision_left = max(1, doc.page_count // 10)
+        existing_segs = {(inv.page_start, inv.page_end) for inv in doc.invoices if inv.page_start is not None}
+        for sg in segs:
+            if (sg["page_start"], sg["page_end"]) in existing_segs:
+                continue
+            seg_pages = [by_no[n] for n in range(sg["page_start"], sg["page_end"] + 1) if n in by_no]
+            if not seg_pages:
+                continue
+            result = extract_segment(db, seg_pages, image_loader=loader if vision_left > 0 else None)
+            if "vision_used" in result["flags"]:
+                vision_left -= 1
+            _save_invoice(db, doc, seg_pages, result, page_start=sg["page_start"], page_end=sg["page_end"],
+                          boundary_confidence=sg["confidence"])
+            db.execute(text("UPDATE documents SET updated_at = now() WHERE id = :id"), {"id": doc_id})
+            db.commit()
+        emit(db, doc, "extract", "done", message=f"{len(segs)} invoices")
+        finish_document(db, doc)
         db.commit()
-    emit(db, doc, "extract", "done", message=f"{len(segs)} invoices")
-    finish_document(db, doc)
-    db.commit()
-    return [i.id for i in doc.invoices]
+        return [i.id for i in doc.invoices]
+    except (BudgetExceeded, LlmError, SoftTimeLimitExceeded):
+        raise
+    except Exception as e:
+        fail_document(db, doc, "FINALIZE_ERROR", f"Finalization failed: {type(e).__name__}")
+        db.commit()
+        raise
 
 
 def _save_invoice(db, doc, pages, result, **loc):

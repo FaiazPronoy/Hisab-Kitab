@@ -69,7 +69,7 @@ def pages_heavy(self, document_id: str, start: int, end: int):
     _pages(self, document_id, start, end)
 
 
-@celery.task(bind=True, acks_late=True, **retry_kw)
+@celery.task(bind=True, acks_late=True, soft_time_limit=1800, time_limit=1860, **retry_kw)
 def finalize(self, document_id: str):
     try:
         with SessionLocal() as db:
@@ -78,16 +78,40 @@ def finalize(self, document_id: str):
     except BudgetExceeded:
         with SessionLocal() as db:
             doc = db.get(Document, document_id)
-            process.fail_document(db, doc, "LLM_BUDGET", "The LLM spending cap was reached.")
-            db.commit()
+            if doc:
+                process.fail_document(db, doc, "LLM_BUDGET", "The LLM spending cap was reached.")
+                db.commit()
         return
     except LlmError as e:
         if e.transient and not s.celery_eager and self.request.retries < self.max_retries:
+            with SessionLocal() as db:
+                doc = db.get(Document, document_id)
+                if doc and doc.status == "finalizing":
+                    doc.status = "processing"
+                    db.commit()
             raise self.retry(exc=e, countdown=int(5 * (2 ** self.request.retries)))
         with SessionLocal() as db:
             doc = db.get(Document, document_id)
             if doc:
                 process.fail_document(db, doc, "LLM_ERROR", f"LLM call failed: {e}")
+                db.commit()
+        if not s.celery_eager:
+            process.record_task_failure(_scoped, "finalize", [document_id], e)
+        return
+    except SoftTimeLimitExceeded as exc:
+        with SessionLocal() as db:
+            doc = db.get(Document, document_id)
+            if doc and doc.status == "finalizing":
+                doc.status = "processing"
+                db.commit()
+        if not s.celery_eager:
+            process.record_task_failure(_scoped, "finalize", [document_id], exc)
+        raise
+    except Exception as e:
+        with SessionLocal() as db:
+            doc = db.get(Document, document_id)
+            if doc and doc.status == "finalizing":
+                process.fail_document(db, doc, "FINALIZE_ERROR", f"Finalization failed: {type(e).__name__}")
                 db.commit()
         if not s.celery_eager:
             process.record_task_failure(_scoped, "finalize", [document_id], e)
