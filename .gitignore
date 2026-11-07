@@ -40,6 +40,16 @@ CLAUDE.md
 AGENTS.md
 .cursor*
 .agents/
+.agent/
+.gsd/
+GSD-STYLE.md
+PROJECT_RULES.md
+VERSION
+adapters/
+model_capabilities.yaml
+scripts/search_*
+scripts/setup_search.*
+scripts/validate-*
 GEMINI.md
 .gemini/
 .impeccable*

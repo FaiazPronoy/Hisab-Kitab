@@ -32,8 +32,9 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
     const out: { key: string; bbox: number[] }[] = [];
     for (const [k, f] of Object.entries(fields)) if (f.bbox && f.page === page) out.push({ key: k, bbox: f.bbox });
     (inv?.line_items || []).forEach((li: any, i: number) => {
-      const lf = li.evidence?.line_id && Object.values(fields).find((f) => f.line_id === li.evidence.line_id);
-      if (lf && (lf as Field).bbox && (lf as Field).page === page) out.push({ key: `line_items[${i}]`, bbox: (lf as Field).bbox! });
+      if (li.evidence?.bbox && li.evidence.page === page) {
+        out.push({ key: `line_items[${i}]`, bbox: li.evidence.bbox });
+      }
     });
     return out;
   }, [fields, inv, page]);

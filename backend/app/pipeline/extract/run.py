@@ -6,12 +6,14 @@ from datetime import date
 
 from app.core.config import validation_config
 from app.pipeline.extract import prompts
-from app.pipeline.extract.grounding import _digits, _extract_decimals, ground, quote_score, suspicious, value_in_quote
+from app.pipeline.extract.grounding import (
+    _extract_decimals, find_line, ground, parse_model_value, quote_score, suspicious,
+)
 from app.pipeline.extract.normalize import (
     infer_day_first, norm_invoice_number, norm_supplier, number_style, parse_amount, parse_currency, parse_date,
 )
 from app.pipeline.extract.providers import call_structured
-from app.pipeline.extract.schema import AMOUNTS, DATES, SCALARS, Field_, InvoiceOut
+from app.pipeline.extract.schema import AMOUNTS, DATES, SCALARS, Field_, InvoiceOut, LineItemOut
 
 LONG_SEGMENT = 10
 ITEM_CHUNK = 16
@@ -42,6 +44,19 @@ def _segment_text(pages) -> str:
         return "\n".join(p.layout or "" for p in pages)
     keep = pages[:2] + pages[-2:]
     return "\n".join(p.layout or "" for p in keep)
+
+
+def dedupe_line_items(items: list[LineItemOut]) -> list[LineItemOut]:
+    seen = set()
+    deduped = []
+    for it in items:
+        key = it.line_id.strip() if it.line_id and it.line_id.strip() else (
+            (it.description or "").strip().lower(), (it.amount or "").strip(), (it.quantity or "").strip()
+        )
+        if key not in seen:
+            seen.add(key)
+            deduped.append(it)
+    return deduped
 
 
 def extract_segment(db, pages, image_loader=None) -> dict:
@@ -75,26 +90,18 @@ def extract_segment(db, pages, image_loader=None) -> dict:
                 all_items.extend(part.line_items)
             elif part is None:
                 flags.append("chunk_extraction_failed")
-        seen = set()
-        deduped = []
-        for it in all_items:
-            key = it.line_id.strip() if it.line_id and it.line_id.strip() else (
-                (it.description or "").strip().lower(), (it.amount or "").strip(), (it.quantity or "").strip()
-            )
-            if key not in seen:
-                seen.add(key)
-                deduped.append(it)
-        out.line_items = deduped
+        out.line_items = dedupe_line_items(all_items)
 
+    style = number_style([full_text])
     source = "llm"
-    fields = {f: ground(f, getattr(out, f), full_text, lines, _kind(f), min_q) for f in SCALARS}
+    fields = {f: ground(f, getattr(out, f), full_text, lines, _kind(f), min_q, style=style) for f in SCALARS}
 
     for f in SECOND_PASS:
         if fields[f]["value_raw"] is None and fields[f]["null_reason"] == "not_on_document":
             again = call_structured(db, purpose=f"missing_{f}", version=prompts.MISSING_VERSION, schema=Field_,
                                     user=prompts.MISSING_USER.format(field=f, document=doc))
             if again and again.value:
-                fields[f] = ground(f, again, full_text, lines, _kind(f), min_q)
+                fields[f] = ground(f, again, full_text, lines, _kind(f), min_q, style=style)
 
     low_ocr = any(p.source == "ocr" and (p.ocr_conf or 0) < cfg["confidence"]["ocr_page_min"] for p in pages)
     key_missing = fields["total"]["value_raw"] is None or fields["invoice_number"]["value_raw"] is None
@@ -156,30 +163,70 @@ def normalize(fields: dict, out: InvoiceOut, full_text: str, lines: list, flags:
 
     items = []
     for i, it in enumerate(out.line_items):
-        q = it.quote or " ".join(x for x in (it.description, it.quantity, it.unit_price, it.amount) if x)
-        q_score = quote_score(q, full_text) if q else 0.0
+        q = it.quote
+        if not q:
+            rejected = [c for c in ("quantity", "unit_price", "amount") if getattr(it, c) is not None]
+            items.append({
+                "idx": i, "description": it.description,
+                "quantity": None, "unit_price": None, "amount": None,
+                "evidence": {"quote": None, "line_id": it.line_id, "verified": False,
+                             "rejected": rejected, "bbox": None, "page": None},
+                "confidence": 0.0,
+            })
+            continue
+
+        q_score = quote_score(q, full_text)
         q_present = q_score >= min_q
-        val_present = True
-        if it.amount and not value_in_quote("amount", it.amount, q, "amount"):
-            val_present = False
-        if it.unit_price and not value_in_quote("unit_price", it.unit_price, q, "amount"):
-            val_present = False
+        ln = find_line(lines, q, it.line_id)
+        line_text = ln["text"] if ln else q
+        m = re.match(r"P(\d+):", ln["id"]) if ln and "id" in ln else None
+        page_no = int(m.group(1)) if m else None
+        bbox = ln.get("bbox") if ln else None
+
+        rejected = []
+        quantity = None
         if it.quantity:
-            q_decs = _extract_decimals(q)
-            it_q_decs = _extract_decimals(it.quantity)
-            if q_decs and it_q_decs:
-                if not any(qd in q_decs for qd in it_q_decs):
-                    val_present = False
+            qty_parsed = parse_model_value(it.quantity, style=style)
+            line_decs = _extract_decimals(line_text, style=style)
+            tokens = re.findall(r"\b\d+(?:[.,]\d+)?\b", line_text)
+            qty_match = False
+            if qty_parsed is not None and any(qty_parsed == ld for ld in line_decs):
+                qty_match = True
+            elif any(it.quantity.strip() == tok for tok in tokens):
+                qty_match = True
+            if qty_match:
+                quantity = _dec(it.quantity, style)
             else:
-                qd_str = _digits(it.quantity)
-                if not (qd_str and qd_str in _digits(q)):
-                    val_present = False
-        ok = bool(q) and q_present and val_present
+                rejected.append("quantity")
+
+        unit_price = None
+        if it.unit_price:
+            up_parsed = parse_model_value(it.unit_price, style=style)
+            line_decs = _extract_decimals(line_text, style=style)
+            if up_parsed is not None and any(up_parsed == ld for ld in line_decs):
+                unit_price = _dec(it.unit_price, style)
+            else:
+                rejected.append("unit_price")
+
+        amount = None
+        if it.amount:
+            am_parsed = parse_model_value(it.amount, style=style)
+            line_decs = _extract_decimals(line_text, style=style)
+            if am_parsed is not None and any(am_parsed == ld for ld in line_decs):
+                amount = _dec(it.amount, style)
+            else:
+                rejected.append("amount")
+
+        ok = q_present and not rejected
         items.append({
             "idx": i, "description": it.description,
-            "quantity": _dec(it.quantity, style), "unit_price": _dec(it.unit_price, style), "amount": _dec(it.amount, style),
-            "evidence": {"quote": it.quote, "line_id": it.line_id, "verified": ok},
-            "confidence": 0.9 if ok else 0.4,
+            "quantity": quantity, "unit_price": unit_price, "amount": amount,
+            "evidence": {
+                "quote": it.quote, "line_id": ln["id"] if ln else it.line_id,
+                "verified": ok, "rejected": rejected,
+                "bbox": bbox, "page": page_no,
+            },
+            "confidence": round(min(ln.get("conf", 1.0) if ln else 0.7, q_score), 3) if ok else 0.4,
         })
 
     tax_lines = [{"label": t.label, "rate": t.rate, "amount": _dec(t.amount, style)} for t in out.tax_lines]

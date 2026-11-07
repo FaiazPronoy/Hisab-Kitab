@@ -41,6 +41,12 @@ def check(inv: dict, meta: dict, items: list[dict], tax_lines: list[dict], flags
                          actual=m.get("rejected_value")))
 
     for i, it in enumerate(items):
+        ev = it.get("evidence") or {}
+        for cell in ev.get("rejected") or []:
+            out.append(F("GROUNDING_FAILED", "critical", f"line_items[{i}].{cell}",
+                         f"Line {i + 1}: The extracted {cell} could not be found in the cited line, so it was removed."))
+
+    for i, it in enumerate(items):
         q, p, a = (_d(it.get(k)) for k in ("quantity", "unit_price", "amount"))
         if q is None or p is None or a is None:
             continue
@@ -50,9 +56,9 @@ def check(inv: dict, meta: dict, items: list[dict], tax_lines: list[dict], flags
             sev = "error" if a and diff / abs(a) > Decimal(str(t["line_math_error_pct"])) else "warning"
             out.append(F("LINE_MATH", sev, f"line_items[{i}].amount", f"Line {i + 1}: quantity x unit price does not match the amount.", exp, a))
 
-    sub, tax, total = inv.get("subtotal"), inv.get("tax"), inv.get("total")
+    sub, tax, total = (_d(inv.get(k)) for k in ("subtotal", "tax", "total"))
     # discounts are often printed with a minus sign; it is always taken off
-    disc, ship = abs(inv.get("discount") or ZERO), inv.get("shipping") or ZERO
+    disc, ship = abs(_d(inv.get("discount")) or ZERO), _d(inv.get("shipping")) or ZERO
     if credit:
         disc = -disc  # on a credit note the discount shrinks a negative amount
     amounts = [_d(it.get("amount")) for it in items]
