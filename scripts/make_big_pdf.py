@@ -60,7 +60,7 @@ def build(pages: int, scanned: int, seed: int = 11):
 
 def upload_and_time(path: Path, api: str, key: str) -> dict:
     h = {"X-API-Key": key}
-    with httpx.Client(timeout=300) as c:
+    with httpx.Client(timeout=600) as c:
         t0 = time.time()
         with open(path, "rb") as f:
             resp = c.post(f"{api}/documents", files=[("files", (path.name, f))], headers=h).json()

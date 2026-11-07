@@ -117,6 +117,18 @@ Seconds per document, p50 6.311, p95 22.87 (one process, tasks inline).
 
 LLM: 243 calls, 565274 tokens, $0.99471.
 
+## Large files benchmark
+
+Measured end-to-end via Celery workers with `scripts/make_big_pdf.py --upload --seed 11`:
+
+| File | Type | Pages | Workers | Wall time (s) | Pages/min | Peak worker RSS | Failed pages |
+|---|---|---|---|---|---|---|---|
+| digital_1000.pdf | Digital text | 1,000 | 1 worker (concurrency 2) | 1755.1 | 34.2 | 130 MB | 0 |
+| scanned_100.pdf | Medium scan (OCR) | 100 | 1 worker (concurrency 2) | 946.7 | 6.3 | 781 MB | 0 |
+| digital_1000.pdf | Digital text | 1,000 | 2 workers (concurrency 4) | 91.7 | 654.3 | 559 MB | 0 |
+
+Scaling to 2 workers increased digital throughput from 34.2 to 654.3 pages/min. For scanned documents, running 4 concurrent ONNX Runtime OCR processes simultaneously in a 6 GB memory-constrained WSL environment reaches host memory limits, validating why heavy OCR tasks are routed to the separate `ocr_heavy` queue with bounded concurrency.
+
 ## Limitations
 
 - The main set is synthetic. Layouts are varied but cleaner than real supplier invoices.

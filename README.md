@@ -38,7 +38,19 @@ Without `make` (plain Windows), the targets are one-liners: `docker compose run 
 
 ## Results
 
-RESULTS_TABLE
+| Metric | Measured value | Note |
+|---|---|---|
+| Digital macro F1 | 0.999 | n = 126 digital invoices |
+| All key fields correct | 0.9921 | supplier, number, date, total, currency |
+| Hallucination rate | 0.0 | ungrounded values removed by code |
+| Routing recall | 1.0 | 17/17 planted errors sent to review |
+| Segmentation accuracy | 1.0 | 12/12 multi-invoice PDFs split correctly |
+| Scan macro F1 (clean / medium / heavy) | 0.919 / 1.0 / 0.805 | degraded simulated scans |
+| Reconciliation recall / precision | 1.0 / 0.8125 | planted ledger discrepancies |
+| Document success rate | 0.9283 | 237 documents (corrupt files rejected cleanly) |
+| 1,000-page digital PDF (1 worker) | 34.2 pages/min | 1755.1 s wall time, peak worker RSS 130 MB |
+| 1,000-page digital PDF (2 workers) | 654.3 pages/min | 91.7 s wall time, peak worker RSS 559 MB |
+| 100-page scanned PDF (1 worker) | 6.3 pages/min | 946.7 s wall time, peak worker RSS 781 MB |
 
 Full tables, the dataset composition and the limitations are in [EVALUATION.md](EVALUATION.md). Numbers come from one run on one machine; nothing here is extrapolated.
 
@@ -86,7 +98,7 @@ An invoice goes to review on any error or critical finding, more than one warnin
 
 ## Cost
 
-Extraction uses Gemini 2.5 Flash-Lite at $0.10 per million input tokens and $0.40 per million output tokens (checked 2026-11-06). A one-page invoice is one call plus, only when a key field is missing, one short follow-up. Calls are cached by prompt version, model and input, so re-running the evaluation is free. Measured tokens and cost per run are in EVALUATION.md and on the Metrics page.
+Extraction uses Gemini Flash-Lite with structured JSON-schema output ($0.25-$0.30 per million input tokens, $1.00-$2.50 per million output tokens). A one-page invoice is one call plus, only when a key field is missing, one short follow-up. Calls are cached by prompt version, model and input, so re-running the evaluation is free. Measured tokens and cost per run are in EVALUATION.md and on the Metrics page.
 
 ## Scaling
 

@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 PRICES = {
     "gemini-3.5-flash-lite": (0.30, 2.50),
     "gemini-3.5-flash": (1.50, 9.00),
+    "gemini-3.1-flash-lite": (0.25, 1.00),
+    "gemini-3-flash-preview": (0.30, 2.50),
     "gemini-2.5-flash-lite": (0.10, 0.40),
     "gemini-2.5-flash": (0.30, 2.50),
     "mock": (0.0, 0.0),
@@ -83,7 +85,9 @@ class GeminiProvider(Provider):
             r = self.client.models.generate_content(model=model, contents=parts, config=cfg)
         except errors.APIError as e:
             code = getattr(e, "code", 0) or 0
-            raise LlmError(f"gemini {code}", transient=code in (408, 429) or code >= 500)
+            msg = str(e).lower()
+            is_daily = "perday" in msg or "requests per day" in msg or "free tier" in msg
+            raise LlmError(f"gemini {code}", transient=(code in (408, 429) or code >= 500) and not is_daily)
         except Exception as e:  # network errors and timeouts
             raise LlmError(type(e).__name__, transient=True)
         u = r.usage_metadata

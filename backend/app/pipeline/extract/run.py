@@ -62,7 +62,7 @@ def extract_segment(db, pages, image_loader=None) -> dict:
         flags.append("extraction_failed")
         out = InvoiceOut()
 
-    if len(pages) > LONG_SEGMENT:
+    if len(pages) > LONG_SEGMENT and not out.line_items:
         items = []
         for i in range(0, min(len(pages), 16), ITEM_CHUNK):
             chunk = "\n".join(p.layout or "" for p in pages[i:i + ITEM_CHUNK])
