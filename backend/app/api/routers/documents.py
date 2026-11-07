@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
@@ -240,6 +240,21 @@ def reprocess(document_id: str, body: Reprocess, db: Session = Depends(get_db)):
     if body.scope not in ("failed_only", "all"):
         raise HTTPException(422, "Invalid reprocess scope. Allowed values: failed_only, all.")
     d = _doc(db, document_id)
+    if d.status in ("queued", "processing", "finalizing"):
+        raise HTTPException(409, f"Document is currently {d.status}; cannot reprocess.")
+
+    # Ingest-failed or 0-page document: re-ingest
+    if not d.page_count:
+        for inv in list(d.invoices):
+            db.delete(inv)
+        for p in d.pages:
+            p.status, p.attempts = "pending", 0
+        d.pages_done, d.pages_failed, d.status, d.error_code, d.error_message = 0, 0, "queued", None, None
+        db.add(Job(document_id=d.id, type="reprocess", queue="ingest"))
+        db.commit()
+        enqueue(str(d.id))
+        return {"document_id": str(d.id), "status": "queued", "scope": body.scope}
+
     if d.kind == "sheet" or body.scope == "all":
         for inv in list(d.invoices):
             db.delete(inv)
@@ -254,6 +269,12 @@ def reprocess(document_id: str, body: Reprocess, db: Session = Depends(get_db)):
     # scope == "failed_only"
     failed = [p.page_no for p in d.pages if p.status == "failed"]
     if failed:
+        for inv in list(d.invoices):
+            if inv.status != "approved":
+                if inv.page_start is None or inv.page_end is None:
+                    db.delete(inv)
+                elif any(inv.page_start <= fp <= inv.page_end for fp in failed):
+                    db.delete(inv)
         for p in d.pages:
             if p.status == "failed":
                 p.status, p.attempts = "pending", 0
@@ -272,7 +293,8 @@ def reprocess(document_id: str, body: Reprocess, db: Session = Depends(get_db)):
     # No pages failed: check if the document itself failed or needs review (e.g. LLM extraction failure)
     if d.status in ("failed", "needs_review"):
         for inv in list(d.invoices):
-            db.delete(inv)
+            if inv.status != "approved":
+                db.delete(inv)
         d.pages_failed = 0
         d.pages_done = sum(1 for p in d.pages if p.status == "done")
         d.status = "processing"
@@ -280,14 +302,14 @@ def reprocess(document_id: str, body: Reprocess, db: Session = Depends(get_db)):
         db.add(Job(document_id=d.id, type="reprocess_finalize", queue="extract"))
         db.commit()
         from app.workers.tasks import finalize
-        finalize.delay(str(d.id))
+        finalize.delay(str(d.id), force_vision=body.force_vision)
         return {"document_id": str(d.id), "status": "processing", "scope": "failed_only"}
 
     raise HTTPException(409, "Nothing failed on this document.")
 
 
 @router.post("/maintenance/sweep")
-def trigger_sweep(timeout_seconds: int = 900, db: Session = Depends(get_db)):
+def trigger_sweep(timeout_seconds: int = Query(900, ge=300, le=86400), db: Session = Depends(get_db)):
     from app.pipeline.process import sweep_stuck_documents
     swept = sweep_stuck_documents(db, timeout_seconds=timeout_seconds)
     return {"swept": swept, "count": len(swept)}

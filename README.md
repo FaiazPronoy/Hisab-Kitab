@@ -110,6 +110,10 @@ An invoice goes to review on any error or critical finding, more than one warnin
 
 Extraction uses Gemini Flash-Lite with structured JSON-schema output ($0.25-$0.30 per million input tokens, $1.50-$2.50 per million output tokens). A one-page invoice is one call plus, only when a key field is missing, one short follow-up. Calls are cached by prompt version, model and input hash to prevent redundant LLM spending during re-extraction. Measured tokens and cost per run are in EVALUATION.md and on the Metrics page.
 
+## Maintenance and Recovery
+
+- **Sweeper:** Scheduled every 5 minutes via Celery Beat (`beat` service in `docker-compose.yml`) running `app.workers.tasks.sweep`, or triggered manually via `POST /api/v1/maintenance/sweep?timeout_seconds=900`. The sweeper recovers stuck `finalizing` claims whose lease expired, re-dispatches pending page batches, or terminates timed-out runs.
+
 ## Scaling
 
 - **10x:** more workers (`docker compose up --scale worker=4`), the separate `ocr_heavy` queue keeps big scans from blocking small files, a connection pooler in front of Postgres.

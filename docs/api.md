@@ -22,6 +22,7 @@ Base path `/api/v1`. Every route needs the `X-API-Key` header (the SSE and page 
 | GET | `/reconciliations`, `/reconciliations/{id}` | runs and their items with references to both sources |
 | GET | `/invoices/export?format=csv` | CSV with formula injection neutralized |
 | GET | `/metrics/summary` | counts, success and failure rates, p50 and p95 per page source, LLM calls and cost |
+| POST | `/maintenance/sweep` | `timeout_seconds` query param (300 to 86400, default 900). Recovers stuck finalizing documents, re-dispatches pending pages, or fails timed-out runs |
 | GET | `/health` | database check |
 
 ## Example

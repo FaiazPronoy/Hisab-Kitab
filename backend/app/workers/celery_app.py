@@ -21,6 +21,13 @@ celery.conf.update(
         "app.workers.tasks.pages_heavy": {"queue": "ocr_heavy"},
         "app.workers.tasks.finalize": {"queue": "extract"},
         "app.workers.tasks.index": {"queue": "index"},
+        "app.workers.tasks.sweep": {"queue": "ingest"},
+    },
+    beat_schedule={
+        "sweep-stuck-documents": {
+            "task": "app.workers.tasks.sweep",
+            "schedule": 300.0,
+        },
     },
     task_always_eager=s.celery_eager,
     task_eager_propagates=True,

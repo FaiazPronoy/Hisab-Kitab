@@ -70,10 +70,10 @@ def pages_heavy(self, document_id: str, start: int, end: int):
 
 
 @celery.task(bind=True, acks_late=True, soft_time_limit=1800, time_limit=1860, **retry_kw)
-def finalize(self, document_id: str):
+def finalize(self, document_id: str, force_vision: bool = False):
     try:
         with SessionLocal() as db:
-            ids = process.run_finalize(db, document_id)
+            ids = process.run_finalize(db, document_id, force_vision=force_vision)
             db.commit()
     except BudgetExceeded:
         with SessionLocal() as db:
@@ -129,3 +129,9 @@ def index(self, document_id: str, invoice_ids: list[str]):
             if inv:
                 index_mod.index_invoice(db, inv)
         db.commit()
+
+
+@celery.task(bind=True, acks_late=True)
+def sweep(self, timeout_seconds: int = 900):
+    with SessionLocal() as db:
+        return process.sweep_stuck_documents(db, timeout_seconds=timeout_seconds)

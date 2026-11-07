@@ -70,6 +70,14 @@ services:
       api:
         condition: service_healthy
 
+  beat:
+    <<: *backend
+    pull_policy: never
+    command: celery -A app.workers.celery_app beat --loglevel=INFO
+    depends_on:
+      api:
+        condition: service_healthy
+
   web:
     build:
       context: ./web

@@ -59,7 +59,7 @@ def dedupe_line_items(items: list[LineItemOut]) -> list[LineItemOut]:
     return deduped
 
 
-def extract_segment(db, pages, image_loader=None) -> dict:
+def extract_segment(db, pages, image_loader=None, force_vision: bool = False) -> dict:
     cfg = validation_config()
     min_q = cfg["grounding"]["quote_match_min"]
     full_text = "\n".join(p.text or "" for p in pages)
@@ -105,7 +105,7 @@ def extract_segment(db, pages, image_loader=None) -> dict:
 
     low_ocr = any(p.source == "ocr" and (p.ocr_conf or 0) < cfg["confidence"]["ocr_page_min"] for p in pages)
     key_missing = fields["total"]["value_raw"] is None or fields["invoice_number"]["value_raw"] is None
-    if image_loader and low_ocr and key_missing:
+    if image_loader and (force_vision or (low_ocr and key_missing)):
         img = image_loader(pages[0])
         if img is not None:
             vis = call_structured(db, purpose="vision", version=prompts.VISION_VERSION, schema=InvoiceOut,

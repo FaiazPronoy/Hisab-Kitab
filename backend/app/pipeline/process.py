@@ -360,7 +360,7 @@ def _image_loader(doc):
     return load
 
 
-def run_finalize(db, doc_id, lease_seconds: int = 300) -> list:
+def run_finalize(db, doc_id, lease_seconds: int = 300, force_vision: bool = False) -> list:
     doc = db.get(Document, doc_id)
     if not doc:
         return []
@@ -391,7 +391,8 @@ def run_finalize(db, doc_id, lease_seconds: int = 300) -> list:
             seg_pages = [by_no[n] for n in range(sg["page_start"], sg["page_end"] + 1) if n in by_no]
             if not seg_pages:
                 continue
-            result = extract_segment(db, seg_pages, image_loader=loader if vision_left > 0 else None)
+            result = extract_segment(db, seg_pages, image_loader=loader if vision_left > 0 else None,
+                                     force_vision=force_vision)
             if "vision_used" in result["flags"]:
                 vision_left -= 1
             _save_invoice(db, doc, seg_pages, result, page_start=sg["page_start"], page_end=sg["page_end"],
@@ -506,18 +507,34 @@ def sweep_stuck_documents(db, timeout_seconds: int = 900) -> list[str]:
         select(Document).where(Document.status.in_(["queued", "processing", "finalizing"]), Document.updated_at < cutoff)
     ).all()
     swept = []
-    from app.workers.tasks import finalize
+    from app.workers.tasks import finalize, pages, pages_heavy
     for doc in stuck:
         last_event = db.scalars(
             select(ProcessingEvent.created_at).where(ProcessingEvent.document_id == doc.id).order_by(ProcessingEvent.id.desc()).limit(1)
         ).first()
         if last_event and last_event >= cutoff:
             continue
-        if doc.pages_done + doc.pages_failed >= doc.page_count and doc.page_count > 0:
+        if doc.page_count and (doc.pages_done + doc.pages_failed >= doc.page_count):
             doc.status = "processing"
             db.commit()
             finalize.delay(str(doc.id))
             swept.append(f"finalized:{doc.id}")
+        elif doc.page_count and doc.page_count > 0:
+            pending_pages = db.scalars(
+                select(Page.page_no).where(Page.document_id == doc.id, Page.status == "pending").order_by(Page.page_no)
+            ).all()
+            if pending_pages:
+                doc.status = "processing"
+                doc.updated_at = now()
+                db.commit()
+                heavy = (doc.page_count or 0) > 60
+                task = pages_heavy if heavy else pages
+                for pno in pending_pages:
+                    task.delay(str(doc.id), pno, pno)
+                swept.append(f"redispatched:{doc.id}")
+            else:
+                fail_document(db, doc, "STUCK_TIMEOUT", f"Document processing exceeded timeout ({timeout_seconds}s)")
+                swept.append(f"failed:{doc.id}")
         else:
             fail_document(db, doc, "STUCK_TIMEOUT", f"Document processing exceeded timeout ({timeout_seconds}s)")
             swept.append(f"failed:{doc.id}")
