@@ -23,8 +23,9 @@ app.add_middleware(CORSMiddleware, allow_origins=s.cors_list, allow_methods=["*"
 
 
 auth = [Depends(require_key)]
-for r in (documents.router, invoices.router, search.router, reconcile.router, metrics.router):
+for r in (invoices.router, search.router, reconcile.router, metrics.router):
     app.include_router(r, prefix="/api/v1", dependencies=auth)
+app.include_router(documents.router, prefix="/api/v1")
 
 
 @app.get("/api/v1/health")

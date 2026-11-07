@@ -21,7 +21,7 @@ docker compose up -d --build  # postgres, redis, api, worker, web
 make seed                     # uploads a demo batch
 ```
 
-Open http://localhost:3000 for the web app and http://localhost:8000/docs for the API. The default API key is `local-dev-key`.
+Open http://localhost:3000 for the web app and http://localhost:8000/docs for the API. The default API key is `local-dev-key` (passed via the `X-API-Key` header; the `?api_key=` query param is supported only on SSE and page image preview routes as a browser demo stand-in).
 
 To use Gemini instead of the offline mock, set `LLM_PROVIDER=gemini` and `GEMINI_API_KEY` in `.env` and restart `api` and `worker`. Spend is capped by `LLM_BUDGET_USD`.
 

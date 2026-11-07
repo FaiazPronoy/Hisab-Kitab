@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from app.db.models import Document, Invoice
 
 
@@ -22,7 +24,21 @@ def _m(v):
 
 
 def _q(v):
-    return None if v is None else format(v.normalize(), "f")
+    if v is None:
+        return None
+    s = format(v, "f") if isinstance(v, Decimal) else str(v)
+    if "." in s:
+        s = s.rstrip("0").rstrip(".")
+    return s
+
+
+def _trim_num(v) -> str | None:
+    if v is None:
+        return None
+    s = format(v, "f") if isinstance(v, Decimal) else str(v)
+    if "." in s:
+        s = s.rstrip("0").rstrip(".")
+    return s
 
 
 def inv_summary(i: Invoice) -> dict:
@@ -43,7 +59,7 @@ def inv_detail(i: Invoice, corrections) -> dict:
         "fields": {f.name: {"value_raw": f.value_raw, "value": f.value_norm, "confidence": f.confidence, "page": f.page_no,
                             "line_id": f.line_id, "bbox": f.bbox, "quote": f.evidence_quote, "source": f.source,
                             "null_reason": f.null_reason, "verified": f.verified} for f in i.fields},
-        "line_items": [{"idx": li.idx, "description": li.description, "quantity": _q(li.quantity), "unit_price": _m(li.unit_price),
+        "line_items": [{"idx": li.idx, "description": li.description, "quantity": _trim_num(li.quantity), "unit_price": _trim_num(li.unit_price),
                         "amount": _m(li.amount), "confidence": li.confidence, "evidence": li.evidence} for li in i.line_items],
         "findings_list": [{"rule_code": f.rule_code, "severity": f.severity, "field": f.field, "message": f.message,
                            "expected": f.expected, "actual": f.actual,

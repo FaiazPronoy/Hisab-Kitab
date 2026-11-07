@@ -1,6 +1,6 @@
 # API
 
-Base path `/api/v1`. Every route needs the `X-API-Key` header (the SSE and page image routes also accept `?api_key=` because browsers cannot set headers on `EventSource` and `<img>`). Interactive docs at `http://localhost:8000/docs`.
+Base path `/api/v1`. Every route needs the `X-API-Key` header (the browser query param `?api_key=` is a demo stand-in supported only on SSE `/documents/{id}/events` and page image `/documents/{id}/pages/{n}/image` routes because browsers cannot set custom headers on `EventSource` and `<img>`). Interactive docs at `http://localhost:8000/docs`.
 
 | Method | Path | Purpose |
 | --- | --- | --- |

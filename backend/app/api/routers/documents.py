@@ -14,6 +14,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.api.deps import require_browser_key, require_key
 from app.api.serialize import doc_out
 from app.core.config import get_settings
 from app.core.ratelimit import limiter
@@ -32,108 +33,166 @@ def enqueue(document_id: str):
     ingest.delay(document_id)
 
 
+def _handle_document_storage(db: Session, name: str, digest: str, info, size: int, tmp_path: Path, st) -> dict:
+    existing = db.scalar(select(Document).where(Document.sha256 == digest))
+    if existing:
+        tmp_path.unlink(missing_ok=True)
+        if existing.status == "failed" and existing.error_code == "ENQUEUE_FAILED":
+            existing.status = "queued"
+            existing.error_code = None
+            existing.error_message = None
+            job = Job(document_id=existing.id, queue="ingest")
+            db.add(job)
+            db.commit()
+            try:
+                enqueue(str(existing.id))
+                return {"filename": name, "document_id": str(existing.id), "job_id": str(job.id), "status": "queued",
+                        "duplicate_of": None}
+            except Exception as eq_err:
+                existing.status, existing.error_code, existing.error_message = "failed", "ENQUEUE_FAILED", str(eq_err)
+                db.commit()
+                raise HTTPException(503, "Task queue unavailable, document marked failed.")
+        return {"filename": name, "document_id": str(existing.id), "status": existing.status,
+                "duplicate_of": str(existing.id), "job_id": None}
+
+    key = st.new_key(info.ext)
+    dest_path = st.path(key)
+    try:
+        tmp_path.replace(dest_path)
+        doc = Document(sha256=digest, filename=name, mime=info.mime, size_bytes=size, storage_key=key, kind=info.kind)
+        db.add(doc)
+        db.flush()
+        job = Job(document_id=doc.id, queue="ingest")
+        db.add(job)
+        db.commit()
+        try:
+            enqueue(str(doc.id))
+        except Exception as eq_err:
+            doc.status, doc.error_code, doc.error_message = "failed", "ENQUEUE_FAILED", str(eq_err)
+            db.commit()
+            raise HTTPException(503, "Task queue unavailable, document marked failed.")
+        return {"filename": name, "document_id": str(doc.id), "job_id": str(job.id), "status": "queued",
+                "duplicate_of": None}
+    except IntegrityError:
+        db.rollback()
+        Path(dest_path).unlink(missing_ok=True)
+        tmp_path.unlink(missing_ok=True)
+        existing = db.scalar(select(Document).where(Document.sha256 == digest))
+        if existing:
+            if existing.status == "failed" and existing.error_code == "ENQUEUE_FAILED":
+                existing.status = "queued"
+                existing.error_code = None
+                existing.error_message = None
+                job = Job(document_id=existing.id, queue="ingest")
+                db.add(job)
+                db.commit()
+                try:
+                    enqueue(str(existing.id))
+                    return {"filename": name, "document_id": str(existing.id), "job_id": str(job.id), "status": "queued",
+                            "duplicate_of": None}
+                except Exception as eq_err:
+                    existing.status, existing.error_code, existing.error_message = "failed", "ENQUEUE_FAILED", str(eq_err)
+                    db.commit()
+                    raise HTTPException(503, "Task queue unavailable, document marked failed.")
+            return {"filename": name, "document_id": str(existing.id), "status": existing.status,
+                    "duplicate_of": str(existing.id), "job_id": None}
+        raise
+    except HTTPException:
+        raise
+    except Exception:
+        db.rollback()
+        Path(dest_path).unlink(missing_ok=True)
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
 @router.post("/documents", status_code=202)
 # uploads are the expensive call, so they get a tighter limit than the default
 @limiter.limit(lambda: get_settings().upload_rate_limit)
 async def upload(request: Request, files: list[UploadFile] = File(...), db: Session = Depends(get_db),
-                 idempotency_key: str | None = Header(None)):
+                 idempotency_key: str | None = Header(None), api_key: str = Depends(require_key)):
     s = get_settings()
     rc = None
+    idemp_redis_key = None
     if idempotency_key:
+        idemp_redis_key = f"docintel:idemp:{api_key}:{idempotency_key}"
         try:
             rc = aioredis.from_url(s.redis_url)
-            cached = await rc.get(f"docintel:idemp:{idempotency_key}")
-            if cached:
-                await rc.aclose()
-                return json.loads(cached)
-        except Exception:
-            pass
-
-    if len(files) > s.max_files_per_request:
-        if rc:
-            await rc.aclose()
-        raise HTTPException(413, f"At most {s.max_files_per_request} files per request.")
-    limit = s.max_upload_mb * 1024 * 1024
-    out = []
-    st = storage()
-    for uf in files:
-        name = safe_filename(uf.filename or "file")
-        hasher = hashlib.sha256()
-        with tempfile.NamedTemporaryFile(delete=False, dir=st.root) as tmp:
-            size = 0
-            while chunk := await uf.read(1024 * 1024):
-                size += len(chunk)
-                if size > limit:
-                    tmp.close()
-                    Path(tmp.name).unlink(missing_ok=True)
-                    if rc:
-                        await rc.aclose()
-                    raise HTTPException(413, f"{name} is larger than {s.max_upload_mb} MB.")
-                hasher.update(chunk)
-                tmp.write(chunk)
-        tmp_path = Path(tmp.name)
-        digest = hasher.hexdigest()
-        try:
-            info = await run_in_threadpool(check_file, name, tmp_path)
-        except IngestError as e:
-            tmp_path.unlink(missing_ok=True)
-            out.append({"filename": name, "status": "rejected", "error_code": e.code, "error_message": e.message})
-            continue
-        existing = db.scalar(select(Document).where(Document.sha256 == digest))
-        if existing:
-            tmp_path.unlink(missing_ok=True)
-            out.append({"filename": name, "document_id": str(existing.id), "status": existing.status,
-                        "duplicate_of": str(existing.id), "job_id": None})
-            continue
-        key = st.new_key(info.ext)
-        dest_path = st.path(key)
-        try:
-            tmp_path.replace(dest_path)
-            doc = Document(sha256=digest, filename=name, mime=info.mime, size_bytes=size, storage_key=key, kind=info.kind)
-            db.add(doc)
-            db.flush()
-            job = Job(document_id=doc.id, queue="ingest")
-            db.add(job)
-            db.commit()
-            try:
-                enqueue(str(doc.id))
-            except Exception as eq_err:
-                doc.status, doc.error_code, doc.error_message = "failed", "ENQUEUE_FAILED", str(eq_err)
-                db.commit()
-                raise HTTPException(503, "Task queue unavailable, document marked failed.")
-            out.append({"filename": name, "document_id": str(doc.id), "job_id": str(job.id), "status": "queued",
-                        "duplicate_of": None})
-        except IntegrityError:
-            db.rollback()
-            Path(dest_path).unlink(missing_ok=True)
-            tmp_path.unlink(missing_ok=True)
-            existing = db.scalar(select(Document).where(Document.sha256 == digest))
-            if existing:
-                out.append({"filename": name, "document_id": str(existing.id), "status": existing.status,
-                            "duplicate_of": str(existing.id), "job_id": None})
+            reserved = await rc.set(idemp_redis_key, "pending", ex=300, nx=True)
+            if not reserved:
+                val = await rc.get(idemp_redis_key)
+                if val in (b"pending", "pending"):
+                    await rc.aclose()
+                    raise HTTPException(409, "A request with this idempotency key is already in progress.")
+                if val:
+                    await rc.aclose()
+                    val_str = val.decode() if isinstance(val, bytes) else val
+                    return json.loads(val_str)
         except HTTPException:
             raise
         except Exception:
-            db.rollback()
-            Path(dest_path).unlink(missing_ok=True)
-            tmp_path.unlink(missing_ok=True)
-            raise
-
-    if idempotency_key and rc:
-        try:
-            await rc.set(f"docintel:idemp:{idempotency_key}", json.dumps(out), ex=3600, nx=True)
-            await rc.aclose()
-        except Exception:
             pass
 
-    if out and all(o["status"] == "rejected" for o in out) and len(out) == 1:
-        raise HTTPException(422, {"error_code": out[0]["error_code"], "message": out[0]["error_message"]})
-    return out
+    try:
+        if len(files) > s.max_files_per_request:
+            raise HTTPException(413, f"At most {s.max_files_per_request} files per request.")
+        limit = s.max_upload_mb * 1024 * 1024
+        out = []
+        st = storage()
+        for uf in files:
+            name = safe_filename(uf.filename or "file")
+            hasher = hashlib.sha256()
+            with tempfile.NamedTemporaryFile(delete=False, dir=st.root) as tmp:
+                size = 0
+                while chunk := await uf.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > limit:
+                        tmp.close()
+                        Path(tmp.name).unlink(missing_ok=True)
+                        raise HTTPException(413, f"{name} is larger than {s.max_upload_mb} MB.")
+                    hasher.update(chunk)
+                    tmp.write(chunk)
+            tmp_path = Path(tmp.name)
+            digest = hasher.hexdigest()
+            try:
+                info = await run_in_threadpool(check_file, name, tmp_path)
+            except IngestError as e:
+                tmp_path.unlink(missing_ok=True)
+                out.append({"filename": name, "status": "rejected", "error_code": e.code, "error_message": e.message})
+                continue
+            res = await run_in_threadpool(_handle_document_storage, db, name, digest, info, size, tmp_path, st)
+            out.append(res)
+
+        if out and all(o["status"] == "rejected" for o in out) and len(out) == 1:
+            raise HTTPException(422, {"error_code": out[0]["error_code"], "message": out[0]["error_message"]})
+
+        if idemp_redis_key and rc:
+            try:
+                await rc.set(idemp_redis_key, json.dumps(out), ex=3600)
+            except Exception:
+                pass
+
+        return out
+    except Exception:
+        if idemp_redis_key and rc:
+            try:
+                val = await rc.get(idemp_redis_key)
+                if val in (b"pending", "pending"):
+                    await rc.delete(idemp_redis_key)
+            except Exception:
+                pass
+        raise
+    finally:
+        if rc:
+            try:
+                await rc.aclose()
+            except Exception:
+                pass
 
 
 @router.get("/documents")
 def list_documents(status: str | None = None, kind: str | None = None, cursor: str | None = None, limit: int = 50,
-                   db: Session = Depends(get_db)):
+                   db: Session = Depends(get_db), _key: str = Depends(require_key)):
     q = select(Document).order_by(Document.created_at.desc(), Document.id.desc())
     if status:
         q = q.where(Document.status == status)
@@ -161,12 +220,14 @@ def _doc(db, document_id) -> Document:
 
 
 @router.get("/documents/{document_id}")
-def get_document(document_id: str, detail: bool = True, db: Session = Depends(get_db)):
+def get_document(document_id: str, detail: bool = True, db: Session = Depends(get_db),
+                 _key: str = Depends(require_key)):
     return doc_out(_doc(db, document_id), detail=detail)
 
 
 @router.get("/documents/{document_id}/pages/{n}")
-def get_page(document_id: str, n: int, db: Session = Depends(get_db)):
+def get_page(document_id: str, n: int, db: Session = Depends(get_db),
+             _key: str = Depends(require_key)):
     p = db.get(Page, (document_id, n))
     if not p:
         raise HTTPException(404, "Page not found.")
@@ -175,7 +236,8 @@ def get_page(document_id: str, n: int, db: Session = Depends(get_db)):
 
 
 @router.get("/documents/{document_id}/pages/{n}/image")
-def page_image(document_id: str, n: int, db: Session = Depends(get_db)):
+def page_image(document_id: str, n: int, db: Session = Depends(get_db),
+               _key: str = Depends(require_browser_key)):
     d = _doc(db, document_id)
     path = storage().path(d.storage_key)
     s = get_settings()
@@ -200,14 +262,16 @@ def page_image(document_id: str, n: int, db: Session = Depends(get_db)):
 
 
 @router.get("/documents/{document_id}/history")
-def history(document_id: str, db: Session = Depends(get_db)):
+def history(document_id: str, db: Session = Depends(get_db),
+            _key: str = Depends(require_key)):
     rows = db.scalars(select(ProcessingEvent).where(ProcessingEvent.document_id == document_id).order_by(ProcessingEvent.id)).all()
     return [{"stage": e.stage, "status": e.status, "page_no": e.page_no, "duration_ms": e.duration_ms, "message": e.message,
              "at": e.created_at.isoformat()} for e in rows]
 
 
 @router.get("/documents/{document_id}/events")
-async def events(document_id: str, request: Request):
+async def events(document_id: str, request: Request,
+                 _key: str = Depends(require_browser_key)):
     """Server-sent events from Redis pub/sub. The client polls if this drops."""
     r = aioredis.from_url(get_settings().redis_url)
     ps = r.pubsub()
@@ -236,7 +300,8 @@ class Reprocess(BaseModel):
 
 
 @router.post("/documents/{document_id}/reprocess", status_code=202)
-def reprocess(document_id: str, body: Reprocess, db: Session = Depends(get_db)):
+def reprocess(document_id: str, body: Reprocess, db: Session = Depends(get_db),
+              _key: str = Depends(require_key)):
     if body.scope not in ("failed_only", "all"):
         raise HTTPException(422, "Invalid reprocess scope. Allowed values: failed_only, all.")
     d = _doc(db, document_id)
@@ -309,7 +374,8 @@ def reprocess(document_id: str, body: Reprocess, db: Session = Depends(get_db)):
 
 
 @router.post("/maintenance/sweep")
-def trigger_sweep(timeout_seconds: int = Query(900, ge=300, le=86400), db: Session = Depends(get_db)):
+def trigger_sweep(timeout_seconds: int = Query(900, ge=300, le=86400), db: Session = Depends(get_db),
+                  _key: str = Depends(require_key)):
     from app.pipeline.process import sweep_stuck_documents
     swept = sweep_stuck_documents(db, timeout_seconds=timeout_seconds)
     return {"swept": swept, "count": len(swept)}

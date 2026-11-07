@@ -255,6 +255,9 @@ def _take_token():
                 if allowed == 1:
                     return
                 time.sleep(1.0)
+            raise LlmError("LLM rate limit wait timed out (sliding window full)", transient=True)
+        except LlmError:
+            raise
         except Exception:
             pass
     bucket, _ = _limits()

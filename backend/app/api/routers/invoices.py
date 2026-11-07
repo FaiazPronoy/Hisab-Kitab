@@ -9,10 +9,12 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.api.serialize import inv_detail, inv_summary
 from app.db.models import Correction, ExtractedField, Invoice, ValidationResult
 from app.db.session import get_db
+from app.pipeline import index as index_mod
 from app.pipeline.extract.normalize import norm_invoice_number, norm_supplier
 from app.pipeline.process import revalidate
 
@@ -61,9 +63,14 @@ def export(status: str | None = None, db: Session = Depends(get_db)):
     if status:
         q = q.where(Invoice.status == status)
     cols = ["invoice_number", "invoice_date", "supplier_name", "customer_name", "currency", "subtotal", "tax", "total", "status"]
+    num_cols = {"subtotal", "tax", "total"}
 
-    def safe(v):
-        s = "" if v is None else str(v)
+    def safe(col: str, v):
+        if v is None:
+            return ""
+        s = str(v)
+        if col in num_cols:
+            return s
         # stop spreadsheet apps from running a cell as a formula
         return "'" + s if s[:1] in ("=", "+", "-", "@", "\t", "\r") else s
 
@@ -75,7 +82,7 @@ def export(status: str | None = None, db: Session = Depends(get_db)):
         for inv in db.scalars(q).yield_per(200):
             buf.seek(0)
             buf.truncate()
-            w.writerow([inv.id] + [safe(getattr(inv, c)) for c in cols])
+            w.writerow([inv.id] + [safe(c, getattr(inv, c)) for c in cols])
             yield buf.getvalue()
 
     return StreamingResponse(rows(), media_type="text/csv",
@@ -101,24 +108,52 @@ class PatchIn(BaseModel):
     corrected_by: str = "reviewer"
 
 
+FIELD_CAPS = {
+    "invoice_number": 100,
+    "supplier_name": 255,
+    "customer_name": 255,
+    "currency": 3,
+    "po_number": 100,
+    "payment_terms": 100,
+    "description": 1000,
+}
+
+
 def _parse(field: str, value: str | None):
     if value is None or value == "":
         return None
     if field in MONEY or field in ("quantity", "unit_price", "amount"):
+        val_str = str(value).strip()
+        # Reject EU-looking input like '1.234,56' or '1234,56'
+        if re.search(r"\d+\.\d{3},\d{2}", val_str) or ("," in val_str and "." in val_str and val_str.find(".") < val_str.find(",")) or re.search(r",\d{1,2}$", val_str):
+            raise HTTPException(422, f"European number format '{value}' is not accepted. Use plain decimals like '1234.56'.")
+        clean = val_str.replace(",", "")
+        if not re.fullmatch(r"^-?\d+(?:\.\d+)?$", clean):
+            raise HTTPException(422, f"'{value}' is not a valid number.")
         try:
-            return Decimal(value.replace(",", ""))
+            d = Decimal(clean)
         except InvalidOperation:
-            raise HTTPException(422, f"'{value}' is not a number.")
+            raise HTTPException(422, f"'{value}' is not a valid number.")
+        if not d.is_finite():
+            raise HTTPException(422, "Number must be finite.")
+        if abs(d) >= Decimal("1e14"):
+            raise HTTPException(422, "Number exceeds maximum allowed value.")
+        return d.quantize(Decimal("0.0001"))
     if field in DATES:
         try:
-            return date.fromisoformat(value)
+            return date.fromisoformat(str(value).strip())
         except ValueError:
             raise HTTPException(422, f"'{value}' is not a date (YYYY-MM-DD).")
     if field == "currency":
-        if not re.fullmatch(r"[A-Za-z]{3}", value):
+        clean_c = str(value).strip()
+        if not re.fullmatch(r"[A-Za-z]{3}", clean_c):
             raise HTTPException(422, "Currency must be a 3-letter ISO code.")
-        return value.upper()
-    return value.strip()
+        return clean_c.upper()
+    val_str = str(value).strip()
+    max_len = FIELD_CAPS.get(field, 255)
+    if len(val_str) > max_len:
+        raise HTTPException(422, f"Field '{field}' exceeds maximum length of {max_len} characters.")
+    return val_str
 
 
 @router.patch("/invoices/{invoice_id}")
@@ -159,7 +194,12 @@ def correct(invoice_id: str, body: PatchIn, db: Session = Depends(get_db)):
     db.flush()
     db.refresh(inv)
     findings = revalidate(db, inv, pages_failed=inv.document.pages_failed)
-    db.commit()
+    index_mod.index_invoice(db, inv)
+    try:
+        db.commit()
+    except StaleDataError:
+        db.rollback()
+        raise HTTPException(409, "This invoice was changed concurrently. Reload and try again.")
     return {"status": inv.status, "version": inv.version, "findings": findings}
 
 
