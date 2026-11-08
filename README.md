@@ -108,7 +108,7 @@ All metrics below were measured on the actual benchmark dataset using `make eval
 |---|---|---|
 | Digital Macro F1 | **0.9839** | n = 126 digital invoices |
 | All Key Fields Correct | **0.8016** | Supplier, number, date, total, currency |
-| Hallucination Rate | **0.0000** | Ungrounded values removed by code |
+| Hallucination Rate | **0.0000 / 0.0032** | 0.0 where truth is empty; 0.0032 for values not found in page text |
 | Routing Recall | **0.9737** | 37/38 defective or planted invoices caught for review |
 | Segmentation Accuracy | **1.0000** | 12/12 multi-invoice PDFs split correctly |
 | Scan Macro F1 (Clean / Med / Heavy) | **0.9778 / 0.9914 / 0.6942** | Simulated scan degradations |
