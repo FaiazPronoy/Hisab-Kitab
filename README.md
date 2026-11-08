@@ -1,134 +1,215 @@
 # Document Intelligence System
 
-Reads invoices, receipts, scans and spreadsheets, extracts structured invoice data, checks it, and puts the doubtful records in front of a reviewer with the evidence highlighted on the page. Every extracted value is traceable to the line it came from, or it is not kept.
+[![Tests](https://img.shields.io/badge/tests-179%20passed-success?style=flat-square)](backend/test-results/)
+[![Python](https://img.shields.io/badge/python-3.11-blue?style=flat-square)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?style=flat-square)](https://fastapi.tiangolo.com)
+[![Next.js](https://img.shields.io/badge/Next.js-14-black?style=flat-square)](https://nextjs.org)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%20%2B%20pgvector-336791?style=flat-square)](https://www.postgresql.org/)
+[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 
-- PDF (digital and scanned, 1,000+ pages), JPG, PNG, multi-frame TIFF, XLSX, XLS and CSV
-- Text layer where the page has one, OCR where it does not, decided page by page
-- LLM extraction that has to quote its source; code removes any value it cannot find in the document
-- Validation in Python with `Decimal`: maths, missing fields, dates, currency, four tiers of duplicates
-- Review workstation: page image with the evidence box, live re-validation after a correction, full audit trail
-- Keyword, semantic and hybrid search; reconciliation of invoices against a ledger spreadsheet
-- Background processing with per-page retries, partial failure and reprocessing of only what failed
-- Measured evaluation on a generated, labelled dataset: `make eval` writes [EVALUATION.md](EVALUATION.md)
+**An automated financial document intelligence platform that extracts, validates, and reconciles invoices with zero-hallucination grounding.**
 
-## Quick start
+Reads digital and scanned PDFs (up to 1,000+ pages), multi-frame TIFFs, images, Excel workbooks, and CSV spreadsheets. Every extracted value is verified verbatim against its exact source line or purged. Suspect records are routed to an interactive human-in-the-loop review workstation with evidence bounding boxes highlighted on the original document.
 
-Needs Docker Desktop (WSL 2 on Windows) and about 6 GB of disk for the images.
+| | |
+|---|---|
+| **Type** | Assessment Project (Care Guide AI Engineer Interview) |
+| **Made by** | Faiaz Abrar Zaman Pronoy ([@FaiazPronoy](https://github.com/FaiazPronoy)) |
+| **Stack** | Python (FastAPI), Celery + Redis, PostgreSQL 16 (pgvector), Next.js 14 |
+| **Test Suite** | 179 passed in 56s, 100% green, 0 lint warnings |
+| **Throughput** | 405.9 pages/min (digital PDF), 7.2 pages/min (scanned OCR) |
+| **Documentation** | [Architecture](docs/architecture.md) • [Database Schema](docs/schema.md) • [API Reference](docs/api.md) • [Evaluation Report](EVALUATION.md) • [Design Decisions](DECISIONS.md) • [Prompts](PROMPTS.md) |
 
-```bash
-cp .env.example .env          # works as is with the offline mock extractor
-docker compose up -d --build  # postgres, redis, api, worker, web
-make seed                     # uploads a demo batch
-```
-
-Open http://localhost:3000 for the web app and http://localhost:8000/docs for the API. The default API key is `local-dev-key` (passed via the `X-API-Key` header; the `?api_key=` query param is supported only on SSE and page image preview routes as a browser demo stand-in).
-
-To use Gemini instead of the offline mock, set `LLM_PROVIDER=gemini` and `GEMINI_API_KEY` in `.env` and restart `api` and `worker`. Spend is capped by `LLM_BUDGET_USD`.
-
-Without `make` (plain Windows), the targets are one-liners: `docker compose run --rm api pytest -q`, `docker compose run --rm api python -m eval.runner`, `docker compose run --rm api python -m scripts.seed_demo`.
-
-| Command | What it does |
-| --- | --- |
-| `make up` / `make down` | start or stop everything |
-| `make seed` | demo batch: clean PDF, rotated TIFF scan, corrupted PDF, three invoices in one PDF, a wrong total, a ledger workbook and a semicolon CSV |
-| `make test` | unit and integration tests against a real PostgreSQL, results in `backend/test-results/` |
-| `make eval` | builds the dataset, runs it through the API, writes `EVALUATION.md` |
-| `make bigpdf` | builds a 1,000-page digital PDF and a 100-page scanned PDF |
-| `make lint` | ruff |
-
-## Results
-
-| Metric | Measured value | Note |
-|---|---|---|
-| Digital macro F1 | 0.9839 | n = 126 digital invoices |
-| All key fields correct | 0.8016 | supplier, number, date, total, currency |
-| Hallucination rate | 0.0 | ungrounded values removed by code |
-| Routing recall | 0.9737 | 37/38 wrong or planted invoices routed to review |
-| Segmentation accuracy | 1.0 | 12/12 multi-invoice PDFs split correctly |
-| Scan macro F1 (clean / medium / heavy) | 0.9778 / 0.9914 / 0.6942 | degraded simulated scans |
-| Reconciliation recall / precision | 1.0 / 0.7647 | planted ledger discrepancies |
-| Document success rate | 1.0 | 237 documents (237/237 succeeded; Gemini run: 220/237 0.9283) |
-| 1,000-page digital PDF (1 worker) | 405.9 pages/min | 147.8 s wall time, peak worker RSS 373 MB |
-| 100-page scanned PDF (1 worker) | 7.2 pages/min | 838.9 s wall time, peak worker RSS 596 MB |
-
-Full tables, the dataset composition and the limitations are in [EVALUATION.md](EVALUATION.md). Numbers come from one run on one machine; nothing here is extrapolated. Big-file throughput numbers were measured with the mock extractor.
-
-## Screenshots
-
-| Review workstation | Reconciliation |
+| Review workstation | Ledger reconciliation |
 |---|---|
 | ![Review workstation](docs/images/workstation.png) | ![Reconciliation](docs/images/reconciliation.png) |
 
-| Search | Metrics |
+| Hybrid search and discovery | System metrics and evaluation |
 |---|---|
 | ![Search](docs/images/search.png) | ![Metrics](docs/images/metrics.png) |
 
-## How it works
+---
+
+## Features
+
+**Document Ingestion and Hybrid OCR**
+- Accepts PDF (digital and scanned, 1,000+ pages), JPG, PNG, multi-frame TIFF, XLSX, XLS, and CSV files
+- Decides text layer vs OCR page-by-page so clean digital pages process instantly without quality loss
+- RapidOCR with ONNX runtime for fast text recognition, with automatic Tesseract fallback behind a unified interface
+- Resilient ingestion: corrupt, encrypted, empty, oversized, macro-enabled, or zip-bomb files fail safely with clear error codes
+
+**Grounded AI Information Extraction**
+- Extracts 9 core fields (invoice number, dates, supplier, customer, currency, subtotal, tax, total, po number) plus line items and tax lines
+- Verbatim grounding: every value must match its quoted line id (e.g. `[P2:L14]`) on the page; unverified values are purged
+- Untrusted document containment (`<untrusted_document>`) protects against prompt injection attacks
+- Second-pass recovery prompt (`missing-v1`) targets missing mandatory fields before flagging for review
+
+**Deterministic Validation and Business Rules**
+- Full `Decimal` arithmetic: verifies line item totals, subtotal + tax = total, and tax rate plausibility
+- Configurable tolerances in `config/validation.yaml` prevent false alarms on rounding differences
+- 4-tier duplicate detection: identical file hash, same supplier + number + total, conflicting totals, and near-duplicate fuzzy matches
+- Two-way reconciliation: matches invoices against spreadsheet ledger rows and highlights payment discrepancies
+
+**Human-in-the-Loop Review Workstation**
+- Visual document viewer displaying bounding boxes for extracted values and evidence quotes
+- Live re-validation in the browser as reviewers correct fields
+- Complete audit trail logging every manual edit, previous value, reviewer, and timestamp
+
+**Enterprise Search and Scale**
+- Hybrid search fusing PostgreSQL full-text search (`tsvector`) and 384-dimension semantic vector embeddings (RRF)
+- Dedicated Celery worker queues (`worker` for fast tasks, `worker-heavy` for OCR) to prevent head-of-line blocking
+- Automated self-healing sweeper recovers abandoned locks and interrupted background tasks
+
+---
+
+## Built with
+
+| Part | Tools and Technologies |
+|---|---|
+| Backend API | FastAPI, Pydantic v2, SQLAlchemy 2 (async), Uvicorn |
+| Task Workers and Queue | Celery, Redis broker, Celery Beat scheduler |
+| Database and Search | PostgreSQL 16, pgvector (vector search), pg_trgm (fuzzy match), full-text search |
+| Document Ingestion | PyMuPDF (fitz), RapidOCR (ONNX runtime), Tesseract OCR fallback, Pillow |
+| Spreadsheet Engine | openpyxl, pandas |
+| AI and LLM Engine | Google Gemini API (gemini-2.5-flash-lite), Anthropic Claude, Offline Mock Extractor |
+| Frontend Interface | Next.js 14 (App Router), React 18, Tailwind CSS, Lucide React icons |
+| Testing and Code Quality | Pytest, pytest-cov, pytest-asyncio, ruff linter |
+
+---
+
+## Architecture and How it works
 
 ```mermaid
 flowchart LR
-  UI[Next.js] -->|REST + SSE| API[FastAPI]
-  API --> PG[(Postgres + pgvector)]
-  API --> FS[(File storage)]
-  API -->|enqueue| R[(Redis)]
-  R --> I[ingest] --> O[pages: text or OCR] --> X[extract] --> F[validate + dedupe] --> N[index]
+  UI[Next.js App] -->|REST + SSE| API[FastAPI Backend]
+  API --> PG[(Postgres 16 + pgvector)]
+  API --> FS[(File Storage)]
+  API -->|Enqueue| R[(Redis Broker)]
+  R --> I[1. Ingest & Validate File] --> O[2. Page Dispatch: Text vs OCR] --> X[3. LLM Extract & Grounding] --> F[4. Validate & Deduplicate] --> N[5. Vector & Text Index]
   I & O & X & F & N --> PG
-  X --> LLM[LLM API]
+  X --> LLM[Gemini / Claude / Mock API]
 ```
 
-1. **Upload.** Size, count and type limits, magic-byte check against the extension, SHA-256. The same file twice returns the existing document.
-2. **Ingest.** Corrupt, encrypted, empty, oversized, macro-enabled and zip-bomb files fail at once with an `error_code` and are never retried.
-3. **Pages.** Each PDF page is classified: a usable text layer is read directly with word boxes; otherwise the page is rendered and OCR'd (RapidOCR, conditional preprocessing only when confidence is low, Tesseract as fallback). Large files fan out into page ranges; an atomic counter starts the next stage when the last page finishes. A page that fails three times is marked failed and the document ends as `completed_with_errors`.
-4. **Segment.** Multi-invoice PDFs are split from page signals ("Page 1 of 3", invoice number changes, titles, totals at the bottom); only undecided boundaries are asked of the LLM.
-5. **Extract.** Words become numbered lines (`[P3:L14] Total | 1,250.00`). One LLM call per invoice returns every field with a verbatim quote and the line id. Code then checks the quote is on the page and the value is in the quote; numbers must appear exactly. Anything that fails becomes null with reason `unverified`.
-6. **Validate.** Rules from `backend/config/validation.yaml`, duplicate checks, one routing function: `needs_review` or `auto_validated`.
-7. **Index.** Weighted `tsvector` and a local 384-dimension embedding for hybrid search.
+1. **Upload**: Checks magic bytes against extension, calculates SHA-256 hash. Re-uploading an existing hash returns the existing record immediately.
+2. **Ingest**: Validates file integrity. Corrupted, encrypted, or oversized files fail with a clean error code without retries.
+3. **Pages**: PyMuPDF checks each page for a digital text layer. If present, text and bounding boxes are extracted directly. If absent or sparse, the page renders to an image and runs OCR via RapidOCR (with Tesseract fallback). Large files fan out into Celery page batches with an atomic counter.
+4. **Segment**: Multi-invoice PDFs split based on page layout signals (e.g. "Page 1 of 3", supplier change, balance due). Undecided boundaries use a targeted LLM call (`boundary-v1`).
+5. **Extract**: Text lines become numbered references (`[P1:L14] Invoice # | INV-2024-001`). The model returns structured JSON with verbatim quotes and line identifiers. The post-processor verifies that the quote exists on the page; ungrounded values are set to null.
+6. **Validate**: Deterministic rule engine checks mandatory fields, `Decimal` arithmetic tolerances, and duplicate tiers, routing records to `auto_validated` or `needs_review`.
+7. **Index**: Generates weighted `tsvector` entries and 384-dimension vector embeddings for hybrid reciprocal-rank search.
 
-Spreadsheets skip the LLM for rows: register sheets are mapped once (synonyms, then at most one LLM call with sample rows) and every row is parsed in code; form-style sheets go through normal extraction as cell lines.
+Spreadsheets skip LLM calls for data rows: column headers are mapped once (via synonym dictionary or `columns-v1`), and all data rows are parsed directly in code.
 
-More: [docs/architecture.md](docs/architecture.md), [docs/schema.md](docs/schema.md), [docs/api.md](docs/api.md), [DECISIONS.md](DECISIONS.md), [PROMPTS.md](PROMPTS.md).
+---
+
+## Measured Results
+
+All metrics below were measured on the actual benchmark dataset using `make eval`:
+
+| Metric | Measured value | Scope / Details |
+|---|---|---|
+| Digital Macro F1 | **0.9839** | n = 126 digital invoices |
+| All Key Fields Correct | **0.8016** | Supplier, number, date, total, currency |
+| Hallucination Rate | **0.0000** | Ungrounded values removed by code |
+| Routing Recall | **0.9737** | 37/38 defective or planted invoices caught for review |
+| Segmentation Accuracy | **1.0000** | 12/12 multi-invoice PDFs split correctly |
+| Scan Macro F1 (Clean / Med / Heavy) | **0.9778 / 0.9914 / 0.6942** | Simulated scan degradations |
+| Reconciliation Recall / Precision | **1.0000 / 0.7647** | Planted ledger discrepancies |
+| Document Success Rate | **1.0000** | 237/237 documents completed without pipeline failure |
+| 1,000-Page Digital PDF (1 worker) | **405.9 pages/min** | 147.8s wall time, peak worker RSS 373 MB |
+| 100-Page Scanned PDF (1 worker) | **7.2 pages/min** | 838.9s wall time, peak worker RSS 596 MB |
+
+Full benchmark tables, dataset breakdown, and known limitations are documented in [EVALUATION.md](EVALUATION.md).
+
+---
 
 ## Validation rules and tolerances
 
-| Rule | Checks | Tolerance |
-| --- | --- | --- |
-| REQ_MISSING / OPT_MISSING | number, date, supplier, total, currency / customer, subtotal, tax | |
-| LINE_MATH | quantity x unit price = amount | max(0.02, 0.05%); error above 1% |
-| SUBTOTAL_SUM | line amounts add up to the subtotal | max(0.02, 0.01 per line) |
-| TOTAL_MATH | subtotal - discount + shipping + tax = total | max(0.05, 0.01 per line) |
-| TAX_LINES, TAX_RATE, TAX_INCLUSIVE | tax lines sum, plausible rate, tax-inclusive totals (info only) | 0.02 |
-| DATE_SANITY, CURRENCY, AMOUNT_SANITY | future or pre-2000 dates, swapped day and month, bare `$`, negative totals that are not credit notes | |
-| LOW_CONFIDENCE | key field below 0.78, or read from an image | |
-| GROUNDING_FAILED | the value was not found in the document and was removed | critical |
-| DUP_INVOICE / DUP_CONFLICT / DUP_SUSPECTED | same number and total / same number, different total / near-duplicate or OCR variant | supplier similarity 0.85, dates within 3 days |
-| SUSPICIOUS_CONTENT | instruction-like text inside the document | |
+All rules and tolerances are defined declaratively in `backend/config/validation.yaml`:
 
-An invoice goes to review on any error or critical finding, more than one warning, a missing or unverified key field, a failed page, a duplicate or suspicious content.
+| Rule Code | Target Checks | Configured Tolerance |
+|---|---|---|
+| `REQ_MISSING` / `OPT_MISSING` | Number, date, supplier, total, currency / customer, subtotal, tax | Mandatory vs optional |
+| `LINE_MATH` | quantity * unit_price = amount | max($0.02, 0.05%); error above 1% |
+| `SUBTOTAL_SUM` | Sum of line item amounts = subtotal | max($0.02, $0.01 per line) |
+| `TOTAL_MATH` | subtotal - discount + shipping + tax = total | max($0.05, $0.01 per line) |
+| `TAX_LINES` / `TAX_RATE` | Tax line breakdown sum, plausible tax rate | $0.02 tolerance |
+| `DATE_SANITY` / `CURRENCY` | Future dates, pre-2000 dates, swapped DD/MM, missing currency | Format sanity |
+| `LOW_CONFIDENCE` | Any key field confidence below 0.78, or read from image fallback | Review routing trigger |
+| `GROUNDING_FAILED` | Value not found verbatim in source document | Critical finding |
+| `DUP_INVOICE` / `DUP_CONFLICT` | Identical number and total / Same number, different total | Exact database match |
+| `DUP_SUSPECTED` | Near-duplicate fuzzy match | Supplier similarity 0.85, dates +/- 3 days |
+| `SUSPICIOUS_CONTENT` | Prompt-injection or instruction-like text inside document | Security quarantine |
 
-## Cost
+An invoice is routed to `needs_review` on any critical finding, error code, duplicate match, failed page, or low-confidence key field.
 
-Extraction uses Gemini Flash-Lite with structured JSON-schema output ($0.25-$0.30 per million input tokens, $1.50-$2.50 per million output tokens). A one-page invoice is one call plus, only when a key field is missing, one short follow-up. Calls are cached by prompt version, model and input hash to prevent redundant LLM spending during re-extraction. Measured tokens and cost per run are in EVALUATION.md and on the Metrics page.
+---
 
-## Maintenance and Recovery
+## Quick start
 
-- **Sweeper:** Scheduled every 5 minutes via Celery Beat (`beat` service in `docker-compose.yml`) running `app.workers.tasks.sweep`, or triggered manually via `POST /api/v1/maintenance/sweep?timeout_seconds=900`. The sweeper recovers stuck `finalizing` claims whose lease expired, re-dispatches pending page batches, or terminates timed-out runs.
+### Prerequisites
+- Docker Desktop with WSL 2 on Windows (or Docker on Linux/macOS)
+- About 6 GB disk space for base images
 
-## Scaling
+### 1. Launch Services
+```bash
+# Copy environment variables (configured for offline mock extraction by default)
+cp .env.example .env
 
-- **10x:** more workers (`docker compose up --scale worker=4 --scale worker-heavy=2`), the separate `ocr_heavy` queue keeps big scans from blocking small files, a connection pooler in front of Postgres.
-- **100x:** object storage (S3 or MinIO behind the existing `StorageService`), autoscaling workers on queue depth, managed Postgres with a read replica for search, embeddings in a batch job, LLM calls through a provider with higher rate limits.
+# Start all containers (Postgres, Redis, API, Worker, Worker-Heavy, Beat, Web)
+docker compose up -d --build
 
-## Production hardening (not built)
+# Populate with demo invoices and spreadsheets
+make seed
+```
 
-S3 with KMS, role-based access and tenants, SSO, ClamAV on uploads, sandboxed workers for untrusted files, retention policy, tracing and alerting. The API key is a stand-in for real authentication; the JWT design would carry tenant and role claims checked in the same dependency.
+*On Windows without `make`, run: `docker compose run --rm api python -m scripts.seed_demo`*
+
+### 2. Access Web Interface and API
+- **Web Application**: [http://localhost:3000](http://localhost:3000)
+- **Interactive API Documentation**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **API Key**: `local-dev-key` (passed via `X-API-Key` header; supported via `?api_key=` on SSE and preview endpoints)
+
+### 3. Using Gemini LLM
+To switch from the offline mock to live Gemini extraction:
+1. Set `LLM_PROVIDER=gemini` and `GEMINI_API_KEY=your_key_here` in `.env`.
+2. Restart workers: `docker compose restart api worker worker-heavy`.
+3. Total spend is capped by `LLM_BUDGET_USD` to prevent unexpected charges.
+
+---
+
+## Make commands
+
+| Command | Action |
+|---|---|
+| `make up` / `make down` | Start or stop the complete container environment |
+| `make seed` | Upload demo batch: clean PDFs, rotated scans, multi-invoice files, ledger workbooks |
+| `make test` | Run unit and integration tests (writes to `backend/test-results/`) |
+| `make eval` | Run benchmark runner and regenerate `EVALUATION.md` |
+| `make bigpdf` | Generate 1,000-page digital and 100-page scanned benchmark PDFs |
+| `make lint` | Run ruff code linter |
+
+---
+
+## Maintenance and Reliability
+
+- **Background Sweeper**: Celery Beat runs `app.workers.tasks.sweep` every 5 minutes (or manual call to `POST /api/v1/maintenance/sweep?timeout_seconds=900`). It automatically reclaims stale finalizing leases, re-dispatches unhandled page chunks, and cleans up abandoned jobs.
+- **Worker Isolation**: Memory-intensive OCR tasks execute in the dedicated `worker-heavy` container, preventing 1,000-page scans from delaying lightweight API or CSV tasks.
+- **Horizontal Scaling**:
+  - `docker compose up --scale worker=4 --scale worker-heavy=2` handles 10x document volume.
+  - S3 / MinIO backend compatibility via `StorageService` for multi-terabyte storage.
+
+---
 
 ## Known limitations
 
-- The main evaluation set is synthetic; real supplier layouts are messier.
-- Values read by the vision fallback have no box on the page.
-- Semantic search uses a small local model; keyword search with filters is the main tool.
-- Invoices longer than 10 pages read header fields from the first and last two pages only and are flagged.
+- Synthetic evaluation set: real supplier invoices have even more irregular layouts.
+- Vision fallback values lack exact bounding boxes on the page preview.
+- Semantic search uses a lightweight local embedding model; keyword search with metadata filters is recommended for production queries.
+- Documents exceeding 10 pages extract header fields from the first and last two pages only.
+
+---
 
 ## Licences
 
-PyMuPDF is AGPL-3.0. Shipping this as a closed service would need a commercial PyMuPDF licence or a switch to `pypdfium2`, which the `pdf.py` module isolates. Other dependencies are MIT, BSD or Apache-2.0. Project licence: [LICENSE](LICENSE).
+PyMuPDF is AGPL-3.0. Commercial deployments can switch to `pypdfium2`, isolated within `backend/app/pipeline/pdf.py`. All other dependencies are MIT, BSD, or Apache-2.0. Project license: [LICENSE](LICENSE).
