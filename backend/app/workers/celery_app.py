@@ -6,6 +6,7 @@ from app.core.logging import setup_logging
 
 s = get_settings()
 celery = Celery("docintel", broker=s.redis_url, backend=None, include=["app.workers.tasks"])
+celery_app = celery
 celery.conf.update(
     task_acks_late=True,
     task_reject_on_worker_lost=True,

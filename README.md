@@ -1,23 +1,21 @@
 # Document Intelligence System
 
-[![Tests](https://img.shields.io/badge/tests-179%20passed-success?style=flat-square)](backend/test-results/)
-[![Python](https://img.shields.io/badge/python-3.11-blue?style=flat-square)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?style=flat-square)](https://fastapi.tiangolo.com)
-[![Next.js](https://img.shields.io/badge/Next.js-14-black?style=flat-square)](https://nextjs.org)
+[![Python](https://img.shields.io/badge/python-3.12-blue?style=flat-square)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.162-009688?style=flat-square)](https://fastapi.tiangolo.com)
+[![Next.js](https://img.shields.io/badge/Next.js-16-black?style=flat-square)](https://nextjs.org)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%20%2B%20pgvector-336791?style=flat-square)](https://www.postgresql.org/)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 
-**An automated financial document intelligence platform that extracts, validates, and reconciles invoices with zero-hallucination grounding.**
+**An automated financial document intelligence platform that extracts, validates, and reconciles invoices with evidence-grounded extraction.**
 
 Reads digital and scanned PDFs (up to 1,000+ pages), multi-frame TIFFs, images, Excel workbooks, and CSV spreadsheets. Every extracted value is verified verbatim against its exact source line or purged. Suspect records are routed to an interactive human-in-the-loop review workstation with evidence bounding boxes highlighted on the original document.
 
 | | |
 |---|---|
-| **Type** | Assessment Project (Care Guide AI Engineer Interview) |
+| **Type** | Assessment Project |
 | **Made by** | Faiaz Abrar Zaman Pronoy ([@FaiazPronoy](https://github.com/FaiazPronoy)) |
-| **Stack** | Python (FastAPI), Celery + Redis, PostgreSQL 16 (pgvector), Next.js 14 |
-| **Test Suite** | 179 passed in 56s, 100% green, 0 lint warnings |
-| **Throughput** | 405.9 pages/min (digital PDF), 7.2 pages/min (scanned OCR) |
+| **Stack** | Python 3.12 (FastAPI), Celery + Redis, PostgreSQL 16 (pgvector), Next.js 16 (React 19) |
+| **Tests** | 179 passed in 56s, 100% green, 0 lint warnings |
 | **Documentation** | [Architecture](docs/architecture.md) • [Database Schema](docs/schema.md) • [API Reference](docs/api.md) • [Evaluation Report](EVALUATION.md) • [Design Decisions](DECISIONS.md) • [Prompts](PROMPTS.md) |
 
 | Review workstation | Ledger reconciliation |
@@ -38,7 +36,7 @@ Reads digital and scanned PDFs (up to 1,000+ pages), multi-frame TIFFs, images, 
 - RapidOCR with ONNX runtime for fast text recognition, with automatic Tesseract fallback behind a unified interface
 - Resilient ingestion: corrupt, encrypted, empty, oversized, macro-enabled, or zip-bomb files fail safely with clear error codes
 
-**Grounded AI Information Extraction**
+**Evidence-Grounded AI Information Extraction**
 - Extracts 9 core fields (invoice number, dates, supplier, customer, currency, subtotal, tax, total, po number) plus line items and tax lines
 - Verbatim grounding: every value must match its quoted line id (e.g. `[P2:L14]`) on the page; unverified values are purged
 - Untrusted document containment (`<untrusted_document>`) protects against prompt injection attacks
@@ -66,14 +64,14 @@ Reads digital and scanned PDFs (up to 1,000+ pages), multi-frame TIFFs, images, 
 
 | Part | Tools and Technologies |
 |---|---|
-| Backend API | FastAPI, Pydantic v2, SQLAlchemy 2 (async), Uvicorn |
+| Backend API | FastAPI 0.162, Pydantic v2, SQLAlchemy 2.1, Uvicorn |
 | Task Workers and Queue | Celery, Redis broker, Celery Beat scheduler |
 | Database and Search | PostgreSQL 16, pgvector (vector search), pg_trgm (fuzzy match), full-text search |
-| Document Ingestion | PyMuPDF (fitz), RapidOCR (ONNX runtime), Tesseract OCR fallback, Pillow |
-| Spreadsheet Engine | openpyxl, pandas |
-| AI and LLM Engine | Google Gemini API (gemini-2.5-flash-lite), Anthropic Claude, Offline Mock Extractor |
-| Frontend Interface | Next.js 14 (App Router), React 18, Tailwind CSS, Lucide React icons |
-| Testing and Code Quality | Pytest, pytest-cov, pytest-asyncio, ruff linter |
+| Document Ingestion | PyMuPDF (pymupdf), RapidOCR (ONNX runtime), Tesseract OCR fallback, Pillow |
+| Spreadsheet Engine | openpyxl, pandas, python-calamine |
+| AI and LLM Engine | Google Gemini API (gemini-3.5-flash-lite), Offline Mock Extractor |
+| Frontend Interface | Next.js 16 (App Router), React 19, Tailwind CSS 4, Lucide React icons |
+| Testing and Code Quality | Pytest, pytest-cov, ruff linter |
 
 ---
 
@@ -87,7 +85,7 @@ flowchart LR
   API -->|Enqueue| R[(Redis Broker)]
   R --> I[1. Ingest & Validate File] --> O[2. Page Dispatch: Text vs OCR] --> X[3. LLM Extract & Grounding] --> F[4. Validate & Deduplicate] --> N[5. Vector & Text Index]
   I & O & X & F & N --> PG
-  X --> LLM[Gemini / Claude / Mock API]
+  X --> LLM[Gemini / Mock API]
 ```
 
 1. **Upload**: Checks magic bytes against extension, calculates SHA-256 hash. Re-uploading an existing hash returns the existing record immediately.
@@ -102,7 +100,7 @@ Spreadsheets skip LLM calls for data rows: column headers are mapped once (via s
 
 ---
 
-## Measured Results
+## Measured Results (Mock Extractor Baseline)
 
 All metrics below were measured on the actual benchmark dataset using `make eval`:
 
@@ -116,10 +114,8 @@ All metrics below were measured on the actual benchmark dataset using `make eval
 | Scan Macro F1 (Clean / Med / Heavy) | **0.9778 / 0.9914 / 0.6942** | Simulated scan degradations |
 | Reconciliation Recall / Precision | **1.0000 / 0.7647** | Planted ledger discrepancies |
 | Document Success Rate | **1.0000** | 237/237 documents completed without pipeline failure |
-| 1,000-Page Digital PDF (1 worker) | **405.9 pages/min** | 147.8s wall time, peak worker RSS 373 MB |
-| 100-Page Scanned PDF (1 worker) | **7.2 pages/min** | 838.9s wall time, peak worker RSS 596 MB |
 
-Full benchmark tables, dataset breakdown, and known limitations are documented in [EVALUATION.md](EVALUATION.md).
+Full benchmark tables, dataset breakdown, comparison with Gemini baseline, and known limitations are documented in [EVALUATION.md](EVALUATION.md).
 
 ---
 
