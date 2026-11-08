@@ -1,6 +1,6 @@
 # AI-assisted development
 
-I used [TOOLS USED] while building this project.
+I used Claude and Gemini while building this project.
 
 **What the tools helped with:** scaffolding of the repository layout, boilerplate for the FastAPI routes, SQLAlchemy models and Next.js pages, first drafts of test cases and of the documentation, and the synthetic invoice templates.
 
