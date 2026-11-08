@@ -1,5 +1,6 @@
 # Document Intelligence System
 
+[![CI](https://github.com/FaiazPronoy/document-intelligence-system/actions/workflows/ci.yml/badge.svg)](https://github.com/FaiazPronoy/document-intelligence-system/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.12-blue?style=flat-square)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.162-009688?style=flat-square)](https://fastapi.tiangolo.com)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?style=flat-square)](https://nextjs.org)
