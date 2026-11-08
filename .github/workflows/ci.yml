@@ -17,6 +17,10 @@ jobs:
           POSTGRES_DB: docintel
         ports: ["5432:5432"]
         options: --health-cmd "pg_isready -U docintel" --health-interval 3s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: --health-cmd "redis-cli ping" --health-interval 3s --health-retries 20
     env:
       DATABASE_URL: postgresql+psycopg://docintel:docintel@localhost:5432/docintel
       REDIS_URL: redis://localhost:6379/0
