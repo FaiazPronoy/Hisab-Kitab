@@ -8,9 +8,15 @@ from app.core.config import validation_config
 ZERO = Decimal("0")
 
 
+def _show(v):
+    if v is None:
+        return None
+    return f"{v:.2f}" if isinstance(v, Decimal) and v == v.quantize(Decimal("0.01")) else str(v)
+
+
 def F(code, severity, field, message, expected=None, actual=None):
     return {"rule_code": code, "severity": severity, "field": field, "message": message,
-            "expected": None if expected is None else str(expected), "actual": None if actual is None else str(actual)}
+            "expected": _show(expected), "actual": _show(actual)}
 
 
 def tol(value: Decimal, abs_: float, pct: float) -> Decimal:

@@ -122,7 +122,8 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
               <li key={k} className={clsx("rounded-md border px-3 py-2 text-sm", f.severity === "critical" || f.severity === "error" ? "border-red-200 bg-red-50" : f.severity === "warning" ? "border-amber-200 bg-amber-50" : "border-line bg-white")}>
                 <button className="text-left" onClick={() => f.field && pick(f.field, fields[f.field])}>
                   <b className="mr-2">{f.rule_code}</b>{f.message}
-                  {(f.expected || f.actual) && <span className="text-muted"> Expected {f.expected ?? "?"}, found {f.actual ?? "?"}.</span>}
+                  {f.expected && f.actual && <span className="text-muted"> Expected {f.expected}, found {f.actual}.</span>}
+                  {!f.expected && f.actual && <span className="text-muted"> Value: {f.actual}.</span>}
                 </button>
               </li>
             ))}
