@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import tempfile
+import uuid
 from pathlib import Path
 
 import redis.asyncio as aioredis
@@ -198,8 +199,12 @@ def list_documents(status: str | None = None, kind: str | None = None, cursor: s
         q = q.where(Document.status == status)
     if kind:
         q = q.where(Document.kind == kind)
+    limit = min(max(limit, 1), 200)
     if cursor:
-        ref = db.get(Document, cursor)
+        try:
+            ref = db.get(Document, uuid.UUID(cursor))
+        except ValueError:
+            raise HTTPException(422, "Invalid cursor.")
         if ref:
             q = q.where(
                 or_(
@@ -207,7 +212,7 @@ def list_documents(status: str | None = None, kind: str | None = None, cursor: s
                     and_(Document.created_at == ref.created_at, Document.id < ref.id)
                 )
             )
-    rows = db.scalars(q.limit(min(limit, 200) + 1)).all()
+    rows = db.scalars(q.limit(limit + 1)).all()
     items = rows[:limit]
     return {"items": [doc_out(d) for d in items], "next_cursor": str(items[-1].id) if len(rows) > limit else None}
 
@@ -220,13 +225,13 @@ def _doc(db, document_id) -> Document:
 
 
 @router.get("/documents/{document_id}")
-def get_document(document_id: str, detail: bool = True, db: Session = Depends(get_db),
+def get_document(document_id: uuid.UUID, detail: bool = True, db: Session = Depends(get_db),
                  _key: str = Depends(require_key)):
     return doc_out(_doc(db, document_id), detail=detail)
 
 
 @router.get("/documents/{document_id}/pages/{n}")
-def get_page(document_id: str, n: int, db: Session = Depends(get_db),
+def get_page(document_id: uuid.UUID, n: int, db: Session = Depends(get_db),
              _key: str = Depends(require_key)):
     p = db.get(Page, (document_id, n))
     if not p:
@@ -236,7 +241,7 @@ def get_page(document_id: str, n: int, db: Session = Depends(get_db),
 
 
 @router.get("/documents/{document_id}/pages/{n}/image")
-def page_image(document_id: str, n: int, db: Session = Depends(get_db),
+def page_image(document_id: uuid.UUID, n: int, db: Session = Depends(get_db),
                _key: str = Depends(require_browser_key)):
     d = _doc(db, document_id)
     path = storage().path(d.storage_key)
@@ -262,7 +267,7 @@ def page_image(document_id: str, n: int, db: Session = Depends(get_db),
 
 
 @router.get("/documents/{document_id}/history")
-def history(document_id: str, db: Session = Depends(get_db),
+def history(document_id: uuid.UUID, db: Session = Depends(get_db),
             _key: str = Depends(require_key)):
     rows = db.scalars(select(ProcessingEvent).where(ProcessingEvent.document_id == document_id).order_by(ProcessingEvent.id)).all()
     return [{"stage": e.stage, "status": e.status, "page_no": e.page_no, "duration_ms": e.duration_ms, "message": e.message,
@@ -270,7 +275,7 @@ def history(document_id: str, db: Session = Depends(get_db),
 
 
 @router.get("/documents/{document_id}/events")
-async def events(document_id: str, request: Request,
+async def events(document_id: uuid.UUID, request: Request,
                  _key: str = Depends(require_browser_key)):
     """Server-sent events from Redis pub/sub. The client polls if this drops."""
     r = aioredis.from_url(get_settings().redis_url)
@@ -300,7 +305,7 @@ class Reprocess(BaseModel):
 
 
 @router.post("/documents/{document_id}/reprocess", status_code=202)
-def reprocess(document_id: str, body: Reprocess, db: Session = Depends(get_db),
+def reprocess(document_id: uuid.UUID, body: Reprocess, db: Session = Depends(get_db),
               _key: str = Depends(require_key)):
     if body.scope not in ("failed_only", "all"):
         raise HTTPException(422, "Invalid reprocess scope. Allowed values: failed_only, all.")
@@ -338,7 +343,7 @@ def reprocess(document_id: str, body: Reprocess, db: Session = Depends(get_db),
             if inv.status != "approved":
                 if inv.page_start is None or inv.page_end is None:
                     db.delete(inv)
-                elif any(inv.page_start <= fp <= inv.page_end for fp in failed):
+                elif any(inv.page_start - 1 <= fp <= inv.page_end + 1 for fp in failed):
                     db.delete(inv)
         for p in d.pages:
             if p.status == "failed":

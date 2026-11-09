@@ -193,7 +193,7 @@ def run_pages(db_factory, doc_id, start: int, end: int) -> bool:
             with db_factory() as db:
                 doc = db.get(Document, doc_id)
                 page = db.get(Page, (doc_id, n))
-                if page.status == "done":
+                if page.status in ("done", "failed"):
                     continue
                 ok, err = False, None
                 for attempt in range(1, PAGE_ATTEMPTS + 1):
@@ -212,7 +212,6 @@ def run_pages(db_factory, doc_id, start: int, end: int) -> bool:
                         time.sleep(0.5 * attempt)
                 page.status = "done" if ok else "failed"
                 page.error = None if ok else err
-                db.commit()
                 done, failed, count = _count(db, doc_id, ok)
                 doc = db.get(Document, doc_id)
                 db.refresh(doc)
@@ -221,7 +220,7 @@ def run_pages(db_factory, doc_id, start: int, end: int) -> bool:
                 if not ok:
                     db.add(FailedTask(task_name="page", args=[str(doc_id), n], error=err or "unknown"))
                 db.commit()
-                if done + failed == count:
+                if done + failed >= count:
                     finished = True
     finally:
         if pdf is not None:
@@ -243,20 +242,21 @@ def fail_page_range(db_factory, doc_id, start: int, end: int, reason: str) -> bo
             return False
         for n in range(start, end + 1):
             p = db.get(Page, (doc_id, n))
-            if p and p.status not in ("done", "failed"):
-                p.status = "failed"
+            if p and p.status == "done":
+                continue
+            if p and p.status == "failed":
                 p.reason = reason
-                doc.pages_failed += 1
-            elif p and p.status == "failed":
-                p.reason = reason
-            elif not p:
-                p = Page(document_id=doc_id, page_no=n, status="failed", reason=reason)
+                continue
+            if not p:
+                p = Page(document_id=doc_id, page_no=n, reason=reason)
                 db.add(p)
-                doc.pages_failed += 1
+            p.status = "failed"
+            p.reason = reason
+            db.flush()
+            done, failed, count = _count(db, doc_id, False)
+            if done + failed >= count:
+                finished = True
         db.commit()
-        db.refresh(doc)
-        if doc.pages_done + doc.pages_failed >= doc.page_count:
-            finished = True
     return finished
 
 
@@ -523,7 +523,11 @@ def _cleanup_deleted_invoices_duplicates(session, flush_context, instances):
             affected = set()
             for res in mirrored:
                 other = session.get(Invoice, res.invoice_id)
+                if other in session.deleted:
+                    continue  # its own cascade removes it
                 session.delete(res)
+                if other is not None and res in other.findings:
+                    other.findings.remove(res)
                 if other and other not in session.deleted:
                     affected.add(other)
             for other in affected:

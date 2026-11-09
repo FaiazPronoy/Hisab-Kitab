@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -12,10 +14,10 @@ router = APIRouter(tags=["reconciliation"])
 
 class RunIn(BaseModel):
     kind: str  # ledger | duplicate_copy
-    ledger_document_id: str | None = None
-    invoice_document_ids: list[str] | None = None  # empty: every non-sheet invoice
-    left_invoice_id: str | None = None
-    right_invoice_id: str | None = None
+    ledger_document_id: uuid.UUID | None = None
+    invoice_document_ids: list[uuid.UUID] | None = None  # empty: every non-sheet invoice
+    left_invoice_id: uuid.UUID | None = None
+    right_invoice_id: uuid.UUID | None = None
 
 
 def _rec(i: Invoice) -> dict:
@@ -40,6 +42,8 @@ def run(body: RunIn, db: Session = Depends(get_db)):
         items = match_ledger(invoices, ledger)
         left, right = None, ledger_doc.id
     elif body.kind == "duplicate_copy":
+        if not body.left_invoice_id or not body.right_invoice_id:
+            raise HTTPException(422, "Both invoice ids are required.")
         a, b = db.get(Invoice, body.left_invoice_id), db.get(Invoice, body.right_invoice_id)
         if not a or not b:
             raise HTTPException(422, "Both invoice ids are required.")
@@ -56,7 +60,7 @@ def run(body: RunIn, db: Session = Depends(get_db)):
     db.flush()
     db.add_all(ReconciliationItem(run_id=r.id, **it) for it in items)
     db.commit()
-    return get(str(r.id), db)
+    return get(r.id, db)
 
 
 @router.get("/reconciliations")
@@ -66,7 +70,7 @@ def list_runs(db: Session = Depends(get_db)):
 
 
 @router.get("/reconciliations/{run_id}")
-def get(run_id: str, db: Session = Depends(get_db)):
+def get(run_id: uuid.UUID, db: Session = Depends(get_db)):
     r = db.get(ReconciliationRun, run_id)
     if not r:
         raise HTTPException(404, "Run not found.")

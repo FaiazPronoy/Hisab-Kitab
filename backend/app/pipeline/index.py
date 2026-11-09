@@ -40,7 +40,9 @@ def index_invoice(db, inv):
                              "pages": _page_text(db, inv)[:20000]})
     vec = embed([card(inv, inv.line_items)])
     if vec:
-        inv.embedding = vec[0]
+        # plain UPDATE so indexing does not bump the invoice version a reviewer is holding
+        db.execute(text("UPDATE invoices SET embedding = CAST(:v AS vector) WHERE id = :id"),
+                   {"v": str(vec[0]), "id": inv.id})
 
 
 def _page_text(db, inv) -> str:

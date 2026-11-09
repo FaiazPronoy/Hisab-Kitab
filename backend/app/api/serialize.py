@@ -53,7 +53,7 @@ def inv_summary(i: Invoice) -> dict:
 def inv_detail(i: Invoice, corrections) -> dict:
     out = inv_summary(i)
     out.update({
-        "version": i.version, "flags": i.flags or [], "boundary_confidence": i.boundary_confidence,
+        "version": i.version, "flags": i.flags or [], "filename": i.document.filename if i.document else None, "boundary_confidence": i.boundary_confidence,
         "subtotal": _m(i.subtotal), "tax": _m(i.tax), "discount": _m(i.discount), "shipping": _m(i.shipping),
         "due_date": _s(i.due_date), "po_number": i.po_number, "tax_lines": i.tax_lines or [],
         "fields": {f.name: {"value_raw": f.value_raw, "value": f.value_norm, "confidence": f.confidence, "page": f.page_no,

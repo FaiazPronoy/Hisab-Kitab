@@ -3,7 +3,6 @@ from sqlalchemy import or_, select
 
 from app.core.config import validation_config
 from app.db.models import Invoice
-from app.pipeline.extract.normalize import ocr_variant
 from app.pipeline.validate.rules import F
 
 
@@ -24,9 +23,8 @@ def tier(a: dict, b: dict, cfg: dict) -> str | None:
     da, db_ = a.get("invoice_date"), b.get("invoice_date")
     if da and db_ and abs((da - db_).days) > cfg["duplicates"]["date_window_days"]:
         return None
-    if na != nb or ocr_variant(na, nb):
-        return "DUP_SUSPECTED"
-    return None
+    # near-identical supplier, same total, close dates: worth a look whatever the numbers say
+    return "DUP_SUSPECTED"
 
 
 def find(db, inv: Invoice) -> list[dict]:

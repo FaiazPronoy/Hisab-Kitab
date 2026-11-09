@@ -152,3 +152,21 @@ def test_csv_export_neutralizes_formulas(client, H, tmp_path):
     up(client, H, p)
     body = client.get("/api/v1/invoices/export", headers=H).text
     assert "'=HYPERLINK" in body or "=HYPERLINK" not in body
+
+
+def test_stale_approve_is_refused_and_last_approval_closes_document(client, H, tmp_path):
+    p, _ = make_pdf(tmp_path, 31, printed_total="1.00")
+    doc_id = up(client, H, p).json()[0]["document_id"]
+    _, inv = first_invoice(client, H, doc_id)
+    r = client.post(f"/api/v1/invoices/{inv['id']}/approve", headers=H, json={"version": inv["version"] + 5})
+    assert r.status_code == 409
+    r = client.post(f"/api/v1/invoices/{inv['id']}/approve", headers=H, json={"version": inv["version"]})
+    assert r.status_code == 200
+    assert client.get(f"/api/v1/documents/{doc_id}", headers=H).json()["status"] == "done"
+
+
+def test_bad_ids_and_limits_are_client_errors(client, H):
+    assert client.get("/api/v1/invoices/not-a-uuid", headers=H).status_code == 422
+    assert client.get("/api/v1/documents/not-a-uuid", headers=H).status_code == 422
+    assert client.get("/api/v1/documents?limit=0", headers=H).status_code == 200
+    assert client.get("/api/v1/documents?cursor=abc", headers=H).status_code == 422

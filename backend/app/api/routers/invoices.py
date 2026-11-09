@@ -1,6 +1,7 @@
 import csv
 import io
 import re
+import uuid
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
@@ -35,7 +36,7 @@ def _inv(db, invoice_id) -> Invoice:
 @router.get("/invoices")
 def list_invoices(status: str | None = None, supplier: str | None = None, currency: str | None = None,
                   date_from: date | None = None, date_to: date | None = None, min_total: Decimal | None = None,
-                  max_total: Decimal | None = None, document_id: str | None = None, limit: int = 100, offset: int = 0,
+                  max_total: Decimal | None = None, document_id: uuid.UUID | None = None, limit: int = 100, offset: int = 0,
                   db: Session = Depends(get_db)):
     q = select(Invoice).order_by(Invoice.created_at.desc())
     if status:
@@ -90,7 +91,7 @@ def export(status: str | None = None, db: Session = Depends(get_db)):
 
 
 @router.get("/invoices/{invoice_id}")
-def get_invoice(invoice_id: str, db: Session = Depends(get_db)):
+def get_invoice(invoice_id: uuid.UUID, db: Session = Depends(get_db)):
     inv = _inv(db, invoice_id)
     corr = db.scalars(select(Correction).where(Correction.invoice_id == inv.id).order_by(Correction.id)).all()
     return inv_detail(inv, corr)
@@ -157,7 +158,7 @@ def _parse(field: str, value: str | None):
 
 
 @router.patch("/invoices/{invoice_id}")
-def correct(invoice_id: str, body: PatchIn, db: Session = Depends(get_db)):
+def correct(invoice_id: uuid.UUID, body: PatchIn, db: Session = Depends(get_db)):
     inv = _inv(db, invoice_id)
     if body.version != inv.version:
         raise HTTPException(409, "This invoice was changed by someone else. Reload and try again.")
@@ -191,24 +192,48 @@ def correct(invoice_id: str, body: PatchIn, db: Session = Depends(get_db)):
                           new_value=None if new is None else str(new), reason=c.reason, corrected_by=body.corrected_by))
     if inv.status == "approved":
         inv.status = "needs_review"
-    db.flush()
-    db.refresh(inv)
-    findings = revalidate(db, inv, pages_failed=inv.document.pages_failed)
-    index_mod.index_invoice(db, inv)
+    inv.updated_at = func.now()
+    try:
+        db.flush()
+        db.refresh(inv)
+        findings = revalidate(db, inv, pages_failed=inv.document.pages_failed)
+        index_mod.index_invoice(db, inv)
+        db.commit()
+    except StaleDataError:
+        db.rollback()
+        raise HTTPException(409, "This invoice was changed concurrently. Reload and try again.")
+    _sync_doc_status(db, inv.document)
+    return {"status": inv.status, "version": inv.version, "findings": findings}
+
+
+class ApproveIn(BaseModel):
+    version: int | None = None
+
+
+def _sync_doc_status(db, doc):
+    # a document waits for review while any of its invoices does
+    if doc.status not in ("done", "needs_review"):
+        return
+    waiting = any(i.status == "needs_review" for i in doc.invoices)
+    new = "needs_review" if waiting else "done"
+    if doc.status != new:
+        doc.status = new
+        db.commit()
+
+
+@router.post("/invoices/{invoice_id}/approve")
+def approve(invoice_id: uuid.UUID, body: ApproveIn | None = None, db: Session = Depends(get_db)):
+    inv = _inv(db, invoice_id)
+    if body and body.version is not None and body.version != inv.version:
+        raise HTTPException(409, "This invoice was changed by someone else. Reload and try again.")
+    inv.status = "approved"
+    db.add(Correction(invoice_id=inv.id, field="status", old_value=None, new_value="approved", reason="approved"))
     try:
         db.commit()
     except StaleDataError:
         db.rollback()
         raise HTTPException(409, "This invoice was changed concurrently. Reload and try again.")
-    return {"status": inv.status, "version": inv.version, "findings": findings}
-
-
-@router.post("/invoices/{invoice_id}/approve")
-def approve(invoice_id: str, db: Session = Depends(get_db)):
-    inv = _inv(db, invoice_id)
-    inv.status = "approved"
-    db.add(Correction(invoice_id=inv.id, field="status", old_value=None, new_value="approved", reason="approved"))
-    db.commit()
+    _sync_doc_status(db, inv.document)
     nxt = _next_review(db, exclude=inv.id)
     return {"status": "approved", "next_invoice_id": str(nxt) if nxt else None}
 

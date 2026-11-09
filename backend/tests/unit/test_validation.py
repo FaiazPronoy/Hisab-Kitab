@@ -116,6 +116,13 @@ def test_duplicate_tiers(b, want):
     assert tier(a, other, validation_config()) == want
 
 
+def test_same_number_with_slightly_different_supplier_is_suspected():
+    from app.core.config import validation_config
+    a = dict(supplier_norm="acme trading", invoice_number_norm="INV1", total=D("10"), currency="USD", invoice_date=date(2026, 1, 1))
+    b = {**a, "supplier_norm": "acme tradinq"}
+    assert tier(a, b, validation_config()) == "DUP_SUSPECTED"
+
+
 def test_segmenter_splits_on_new_invoice_numbers_and_blank_pages():
     pages = ["ACME\nINVOICE\nInvoice No: A-100\nItem 1\nTotal 10.00",
              "ACME\nInvoice No: A-100\nDescription Qty\nmore items\nTotal 20.00",

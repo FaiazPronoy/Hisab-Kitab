@@ -6,11 +6,30 @@ import random
 from pathlib import Path
 
 import httpx
+import openpyxl
 from faker import Faker
 
-from eval import degrade, generator, sheets_gen
+from eval import degrade, generator
 
 OUT = Path(os.environ.get("DEMO_DIR", "/data/storage/demo"))
+
+
+def demo_ledger(invs):
+    # small payments sheet with a bit of everything: two clean rows, one
+    # number shared by the pdf and its scan, two wrong amounts and a ghost
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Payments"
+    ws.append(["Invoice No", "Invoice Date", "Supplier", "Total", "Currency"])
+    for k, inv in enumerate(invs):
+        total = float(inv["total"])
+        if k == 3:
+            total += 37.5
+        ws.append([inv["invoice_number"], inv["invoice_date"], inv["supplier_name"], total, inv["currency"]])
+    ws.append(["GHOST-9000", "2026-05-01", "Phantom Supplies Ltd", 199.0, "USD"])
+    p = OUT / "ledger.xlsx"
+    wb.save(p)
+    return p
 
 
 def main():
@@ -35,11 +54,10 @@ def main():
     bad = OUT / "corrupted.pdf"
     bad.write_bytes(files[1].read_bytes()[:900])
     files.append(bad)
-    led = sheets_gen.ledger(invs[:5], OUT, rng)
-    files.append(OUT / led["file"])
+    files.append(demo_ledger(invs[:5]))
     csv = OUT / "register.csv"
     csv.write_text("Invoice No;Date;Supplier;Total;Currency\n" + "\n".join(
-        f"{i['invoice_number']};{i['invoice_date']};{i['supplier_name']};{i['total'].replace('.', ',')};{i['currency']}" for i in invs[:4]),
+        f"{i['invoice_number']};{i['invoice_date']};{i['supplier_name']};{i['total'].replace('.', ',')};{i['currency']}" for i in invs[5:8]),
         encoding="cp1252")
     files.append(csv)
 

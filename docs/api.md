@@ -2,6 +2,8 @@
 
 Base path `/api/v1`. Every route needs the `X-API-Key` header (the browser query param `?api_key=` is a demo stand-in supported only on SSE `/documents/{id}/events` and page image `/documents/{id}/pages/{n}/image` routes because browsers cannot set custom headers on `EventSource` and `<img>`). Interactive docs at `http://localhost:8000/docs`.
 
+Ids in paths and bodies are UUIDs; anything else gets a 422.
+
 | Method | Path | Purpose |
 | --- | --- | --- |
 | POST | `/documents` | multipart, field `files` (many). 202 with `[{document_id, job_id, status, duplicate_of}]`. A file that fails the type check comes back as `rejected` with `error_code`; a single rejected file returns 422. Over the size limit: 413. |
@@ -15,7 +17,7 @@ Base path `/api/v1`. Every route needs the `X-API-Key` header (the browser query
 | GET | `/invoices` | filters: `status, supplier, currency, date_from, date_to, min_total, max_total, document_id` |
 | GET | `/invoices/{id}` | fields with evidence (quote, line id, box, confidence, source), line items, findings, correction history |
 | PATCH | `/invoices/{id}` | `{corrections: [{field, value, reason}], version}`. Writes audit rows, re-validates and returns the new findings. 409 if `version` is stale. Line items use `line_items[2].amount`. |
-| POST | `/invoices/{id}/approve` | returns the next invoice waiting for review |
+| POST | `/invoices/{id}/approve` | optional `{version}`, 409 if it is stale. Marks the document done once none of its invoices wait for review. Returns the next invoice waiting for review. |
 | GET | `/review-queue` | needs-review invoices, most severe first |
 | GET | `/search` | `q`, `mode=keyword, semantic or hybrid`, plus the invoice filters and `has_findings` |
 | POST | `/reconciliations` | `{kind: ledger, ledger_document_id}` or `{kind: duplicate_copy, left_invoice_id, right_invoice_id}` |
