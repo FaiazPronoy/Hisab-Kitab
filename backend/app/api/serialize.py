@@ -4,7 +4,7 @@ from app.db.models import Document, Invoice
 
 
 def doc_out(d: Document, detail: bool = False) -> dict:
-    out = {"id": str(d.id), "filename": d.filename, "kind": d.kind, "status": d.status, "size_bytes": d.size_bytes,
+    out = {"id": str(d.id), "filename": d.filename, "kind": d.kind, "role": d.role, "status": d.status, "size_bytes": d.size_bytes,
            "page_count": d.page_count, "pages_done": d.pages_done, "pages_failed": d.pages_failed,
            "error_code": d.error_code, "error_message": d.error_message, "created_at": d.created_at.isoformat()}
     if detail:
@@ -53,7 +53,11 @@ def inv_summary(i: Invoice) -> dict:
 def inv_detail(i: Invoice, corrections) -> dict:
     out = inv_summary(i)
     out.update({
-        "version": i.version, "flags": i.flags or [], "filename": i.document.filename if i.document else None, "boundary_confidence": i.boundary_confidence,
+        "version": i.version, "flags": i.flags or [], "filename": i.document.filename if i.document else None,
+        "document_role": i.document.role if i.document else None,
+        "bank_account": i.bank_account, "bank_evidence": i.bank_evidence,
+        "approved_by": i.approved_by, "approved_at": i.approved_at.isoformat() if i.approved_at else None,
+        "payment_batch_id": _s(i.payment_batch_id), "boundary_confidence": i.boundary_confidence,
         "subtotal": _m(i.subtotal), "tax": _m(i.tax), "discount": _m(i.discount), "shipping": _m(i.shipping),
         "due_date": _s(i.due_date), "po_number": i.po_number, "tax_lines": i.tax_lines or [],
         "fields": {f.name: {"value_raw": f.value_raw, "value": f.value_norm, "confidence": f.confidence, "page": f.page_no,

@@ -10,19 +10,23 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 
+from app.api.deps import Actor, get_actor
 from app.api.serialize import inv_detail, inv_summary
+from app.core.config import get_settings
 from app.db.models import Correction, ExtractedField, Invoice, ValidationResult
 from app.db.session import get_db
 from app.pipeline import index as index_mod
+from app.pipeline import memory
 from app.pipeline.extract.normalize import norm_invoice_number, norm_supplier
 from app.pipeline.process import revalidate
 
 router = APIRouter(tags=["invoices"])
 MONEY = {"subtotal", "tax", "discount", "shipping", "total"}
 DATES = {"invoice_date", "due_date"}
-TEXT = {"invoice_number", "supplier_name", "customer_name", "po_number", "currency"}
+TEXT = {"invoice_number", "supplier_name", "customer_name", "po_number", "currency", "bank_account"}
 ITEM = re.compile(r"^line_items\[(\d+)\]\.(description|quantity|unit_price|amount)$")
 
 
@@ -106,7 +110,6 @@ class CorrectionIn(BaseModel):
 class PatchIn(BaseModel):
     corrections: list[CorrectionIn]
     version: int
-    corrected_by: str = "reviewer"
 
 
 FIELD_CAPS = {
@@ -115,6 +118,7 @@ FIELD_CAPS = {
     "customer_name": 255,
     "currency": 3,
     "po_number": 100,
+    "bank_account": 64,
     "payment_terms": 100,
     "description": 1000,
 }
@@ -151,6 +155,8 @@ def _parse(field: str, value: str | None):
             raise HTTPException(422, "Currency must be a 3-letter ISO code.")
         return clean_c.upper()
     val_str = str(value).strip()
+    if field == "bank_account":
+        val_str = re.sub(r"\s+", "", val_str).upper()
     max_len = FIELD_CAPS.get(field, 255)
     if len(val_str) > max_len:
         raise HTTPException(422, f"Field '{field}' exceeds maximum length of {max_len} characters.")
@@ -158,11 +164,14 @@ def _parse(field: str, value: str | None):
 
 
 @router.patch("/invoices/{invoice_id}")
-def correct(invoice_id: uuid.UUID, body: PatchIn, db: Session = Depends(get_db)):
+def correct(invoice_id: uuid.UUID, body: PatchIn, db: Session = Depends(get_db), actor: Actor = Depends(get_actor)):
     inv = _inv(db, invoice_id)
     if body.version != inv.version:
         raise HTTPException(409, "This invoice was changed by someone else. Reload and try again.")
+    if inv.payment_batch_id:
+        raise HTTPException(409, "This invoice is already in a payment file and can no longer be changed.")
     by_name = {f.name: f for f in inv.fields}
+    learned = []
     for c in body.corrections:
         m = ITEM.match(c.field)
         if m:
@@ -177,6 +186,8 @@ def correct(invoice_id: uuid.UUID, body: PatchIn, db: Session = Depends(get_db))
         elif c.field in MONEY | DATES | TEXT:
             new = _parse(c.field, c.value)
             old = getattr(inv, c.field)
+            # the norm of the name as printed, not the canonical one an alias may have set
+            old_supplier_norm = norm_supplier(inv.supplier_name)
             setattr(inv, c.field, new)
             if c.field == "invoice_number":
                 inv.invoice_number_norm = norm_invoice_number(new)
@@ -186,12 +197,17 @@ def correct(invoice_id: uuid.UUID, body: PatchIn, db: Session = Depends(get_db))
             f.value_norm = None if new is None else str(new)
             f.source, f.confidence, f.verified, f.null_reason = "user", 1.0, new is not None, None if new is not None else "not_on_document"
             db.add(f)
+            got = memory.learn(db, inv, c.field, None if new is None else str(new), old_supplier_norm)
+            if got:
+                learned.append(got)
         else:
             raise HTTPException(422, f"Unknown field '{c.field}'.")
         db.add(Correction(invoice_id=inv.id, field=c.field, old_value=None if old is None else str(old),
-                          new_value=None if new is None else str(new), reason=c.reason, corrected_by=body.corrected_by))
+                          new_value=None if new is None else str(new), reason=c.reason, corrected_by=actor.name,
+                          corrected_by_id=actor.user_id))
     if inv.status == "approved":
         inv.status = "needs_review"
+        inv.approved_by = inv.approved_at = None
     inv.updated_at = func.now()
     try:
         db.flush()
@@ -199,11 +215,14 @@ def correct(invoice_id: uuid.UUID, body: PatchIn, db: Session = Depends(get_db))
         findings = revalidate(db, inv, pages_failed=inv.document.pages_failed)
         index_mod.index_invoice(db, inv)
         db.commit()
-    except StaleDataError:
+    except (StaleDataError, IntegrityError):
         db.rollback()
         raise HTTPException(409, "This invoice was changed concurrently. Reload and try again.")
     _sync_doc_status(db, inv.document)
-    return {"status": inv.status, "version": inv.version, "findings": findings}
+    return {"status": inv.status, "version": inv.version, "findings": findings, "learned": learned}
+
+
+SENSITIVE = ["total", "subtotal", "tax", "discount", "shipping", "currency", "bank_account", "supplier_name"]
 
 
 class ApproveIn(BaseModel):
@@ -222,12 +241,33 @@ def _sync_doc_status(db, doc):
 
 
 @router.post("/invoices/{invoice_id}/approve")
-def approve(invoice_id: uuid.UUID, body: ApproveIn | None = None, db: Session = Depends(get_db)):
+def approve(invoice_id: uuid.UUID, body: ApproveIn | None = None, db: Session = Depends(get_db),
+            actor: Actor = Depends(get_actor)):
     inv = _inv(db, invoice_id)
     if body and body.version is not None and body.version != inv.version:
         raise HTTPException(409, "This invoice was changed by someone else. Reload and try again.")
+    if inv.status == "approved":
+        raise HTTPException(409, f"Already approved by {inv.approved_by or 'someone'}.")
+    if inv.document.role == "ledger":
+        raise HTTPException(409, "Ledger rows are payment records; they are reconciled, not approved.")
+    limit = Decimal(str(get_settings().approval_limit))
+    big = inv.total is not None and abs(inv.total) >= limit
+    bank_changed = any(f.rule_code == "BANK_CHANGED" for f in inv.findings)
+    if big and actor.role != "approver":
+        raise HTTPException(403, f"Invoices of {limit:,.0f} or more need an approver.")
+    if bank_changed and actor.role != "approver":
+        raise HTTPException(403, "New bank details need an approver, after a call to the supplier on a known number.")
+    if (big or bank_changed) and actor.user_id is not None:
+        # four eyes: whoever changed what gets paid, or to whom, cannot also approve it
+        mine = db.scalar(select(func.count()).select_from(Correction).where(
+            Correction.invoice_id == inv.id, Correction.corrected_by_id == actor.user_id,
+            Correction.field.in_(SENSITIVE)))
+        if mine:
+            raise HTTPException(403, "You changed the amounts or payee on this invoice, so someone else has to approve it.")
     inv.status = "approved"
-    db.add(Correction(invoice_id=inv.id, field="status", old_value=None, new_value="approved", reason="approved"))
+    inv.approved_by, inv.approved_at = actor.name, func.now()
+    db.add(Correction(invoice_id=inv.id, field="status", old_value=None, new_value="approved", reason="approved",
+                      corrected_by=actor.name))
     try:
         db.commit()
     except StaleDataError:
@@ -235,7 +275,7 @@ def approve(invoice_id: uuid.UUID, body: ApproveIn | None = None, db: Session = 
         raise HTTPException(409, "This invoice was changed concurrently. Reload and try again.")
     _sync_doc_status(db, inv.document)
     nxt = _next_review(db, exclude=inv.id)
-    return {"status": "approved", "next_invoice_id": str(nxt) if nxt else None}
+    return {"status": "approved", "approved_by": actor.name, "next_invoice_id": str(nxt) if nxt else None}
 
 
 def _review_query():

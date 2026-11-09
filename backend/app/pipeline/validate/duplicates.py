@@ -2,7 +2,7 @@ from rapidfuzz import fuzz
 from sqlalchemy import or_, select
 
 from app.core.config import validation_config
-from app.db.models import Invoice
+from app.db.models import Document, Invoice
 from app.pipeline.validate.rules import F
 
 
@@ -31,10 +31,11 @@ def find(db, inv: Invoice) -> list[dict]:
     cfg = validation_config()
     if not inv.supplier_norm and not inv.invoice_number_norm:
         return []
-    # ledger rows are payment records, compared to invoices by reconciliation, not here
+    # ledger rows are payment records, compared to invoices by reconciliation, not here;
+    # rows of an invoice register are compared with other register rows
     is_row = inv.row_index is not None
-    q = select(Invoice).where(Invoice.id != inv.id,
-                              Invoice.row_index.is_not(None) if is_row else Invoice.row_index.is_(None))
+    q = select(Invoice).join(Document).where(Invoice.id != inv.id, Document.role.is_distinct_from("ledger"),
+                                             Invoice.row_index.is_not(None) if is_row else Invoice.row_index.is_(None))
     conds = []
     if inv.invoice_number_norm:
         conds.append(Invoice.invoice_number_norm == inv.invoice_number_norm)

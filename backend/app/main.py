@@ -6,7 +6,8 @@ from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 
 from app.api.deps import require_key
-from app.api.routers import documents, invoices, metrics, reconcile, search
+from app.api.routers import auth as auth_router
+from app.api.routers import documents, invoices, metrics, payments, reconcile, search
 from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.core.ratelimit import limiter
@@ -23,7 +24,7 @@ app.add_middleware(CORSMiddleware, allow_origins=s.cors_list, allow_methods=["*"
 
 
 auth = [Depends(require_key)]
-for r in (invoices.router, search.router, reconcile.router, metrics.router):
+for r in (auth_router.router, invoices.router, search.router, reconcile.router, metrics.router, payments.router):
     app.include_router(r, prefix="/api/v1", dependencies=auth)
 app.include_router(documents.router, prefix="/api/v1")
 

@@ -30,6 +30,7 @@ SYNONYMS = {
     "unit_price": ["unit price", "price", "rate"],
 }
 TOTAL_ROW = re.compile(r"^\s*(grand\s+)?totals?\b", re.I)
+LEDGER_WORDS = re.compile(r"\b(payments?|paid|remittance|settled|cleared|bank\s+statement|ledger)\b", re.I)
 
 
 @dataclass
@@ -205,3 +206,13 @@ def form_cells(s: Sheet) -> list[tuple[int, int, str]]:
                 v = v.date().isoformat() if isinstance(v, datetime) else v.isoformat()
             cells.append((r, c, str(v)))
     return cells
+
+
+def guess_role(sheets: list[Sheet]) -> str:
+    """A sheet named or headed like a payment record is a ledger; anything
+    else is a list of invoices. The uploader can override this."""
+    for sh in sheets:
+        head = [sh.name] + [str(c) for row in sh.rows[:5] for c in row if isinstance(c, str)]
+        if any(LEDGER_WORDS.search(h) for h in head):
+            return "ledger"
+    return "invoices"

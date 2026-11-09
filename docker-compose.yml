@@ -6,6 +6,7 @@ x-backend: &backend
   volumes:
     - storage:/data/storage
     - ./backend/app:/app/app
+    - ./backend/config:/app/config
     - ./backend/tests:/app/tests
     - ./scripts:/app/scripts
     - ./eval:/app/eval

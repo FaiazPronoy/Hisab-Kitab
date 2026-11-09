@@ -12,6 +12,8 @@ from app.pipeline.extract.grounding import (
 from app.pipeline.extract.normalize import (
     infer_day_first, norm_invoice_number, norm_supplier, number_style, parse_amount, parse_currency, parse_date,
 )
+from app.pipeline import memory
+from app.pipeline.extract.bank import find_bank
 from app.pipeline.extract.providers import call_structured
 from app.pipeline.extract.schema import AMOUNTS, DATES, SCALARS, Field_, InvoiceOut, LineItemOut
 
@@ -103,6 +105,9 @@ def extract_segment(db, pages, image_loader=None, force_vision: bool = False) ->
             if again and again.value:
                 fields[f] = ground(f, again, full_text, lines, _kind(f), min_q, style=style)
 
+    if memory.recall(db, fields, full_text, lines, min_q, style):
+        flags.append("memory_used")
+
     low_ocr = any(p.source == "ocr" and (p.ocr_conf or 0) < cfg["confidence"]["ocr_page_min"] for p in pages)
     key_missing = fields["total"]["value_raw"] is None or fields["invoice_number"]["value_raw"] is None
     if image_loader and (force_vision or (low_ocr and key_missing)):
@@ -123,7 +128,9 @@ def extract_segment(db, pages, image_loader=None, force_vision: bool = False) ->
                                          "null_reason": None, "source": "vision"}
                 flags.append("vision_used")
 
-    return normalize(fields, out, full_text, lines, flags, source, min_q)
+    result = normalize(fields, out, full_text, lines, flags, source, min_q)
+    result["bank"] = find_bank(lines)
+    return result
 
 
 def normalize(fields: dict, out: InvoiceOut, full_text: str, lines: list, flags: list, source: str, min_q: float) -> dict:

@@ -48,3 +48,8 @@ reconcile:
 
 key_fields: [invoice_number, invoice_date, supplier_name, total, currency]
 optional_fields: [customer_name, subtotal, tax]
+
+# supplier history checks (app/pipeline/validate/risk.py)
+risk:
+  min_history: 3
+  amount_factor: 3

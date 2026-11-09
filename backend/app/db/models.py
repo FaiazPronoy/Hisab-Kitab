@@ -32,6 +32,7 @@ class Document(Base):
     size_bytes: Mapped[int] = mapped_column(BigInteger)
     storage_key: Mapped[str] = mapped_column(String(100))
     kind: Mapped[str] = mapped_column(String(20))  # pdf | image | sheet
+    role: Mapped[str | None] = mapped_column(String(20))  # sheets only: invoices | ledger
     status: Mapped[str] = mapped_column(String(30), default="queued", index=True)
     page_count: Mapped[int] = mapped_column(Integer, default=0)
     pages_done: Mapped[int] = mapped_column(Integer, default=0)
@@ -99,6 +100,11 @@ class Invoice(Base):
     overall_confidence: Mapped[float | None] = mapped_column(Float)
     boundary_confidence: Mapped[float | None] = mapped_column(Float)
     flags: Mapped[list | None] = mapped_column(JSONB)
+    bank_account: Mapped[str | None] = mapped_column(String(64))
+    bank_evidence: Mapped[dict | None] = mapped_column(JSONB)
+    approved_by: Mapped[str | None] = mapped_column(String(100))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    payment_batch_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
     search_tsv: Mapped[str | None] = mapped_column(TSVECTOR)
     embedding = mapped_column(Vector(EMBED_DIM), nullable=True)
@@ -182,6 +188,7 @@ class Correction(Base):
     new_value: Mapped[str | None] = mapped_column(Text)
     reason: Mapped[str | None] = mapped_column(Text)
     corrected_by: Mapped[str] = mapped_column(String(100), default="reviewer")
+    corrected_by_id: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -267,6 +274,55 @@ class LlmCall(Base):
     cost: Mapped[float] = mapped_column(Float, default=0.0)
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
     cached: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(50), unique=True)
+    name: Mapped[str] = mapped_column(String(100))
+    role: Mapped[str] = mapped_column(String(20), default="clerk")  # clerk | approver
+    password_hash: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SupplierLabel(Base):
+    """A label a reviewer's correction showed us for one supplier's layout,
+    e.g. this supplier prints its invoice number after "Our ref"."""
+    __tablename__ = "supplier_labels"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    supplier_norm: Mapped[str] = mapped_column(String(255), index=True)
+    field: Mapped[str] = mapped_column(String(40))
+    label: Mapped[str] = mapped_column(String(80))
+    hits: Mapped[int] = mapped_column(Integer, default=1)
+    learned_from: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("ux_supplier_labels", "supplier_norm", "field", "label", unique=True),)
+
+
+class SupplierAlias(Base):
+    __tablename__ = "supplier_aliases"
+
+    alias_norm: Mapped[str] = mapped_column(String(255), primary_key=True)
+    supplier_norm: Mapped[str] = mapped_column(String(255))
+    supplier_name: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PaymentBatch(Base):
+    __tablename__ = "payment_batches"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    created_by: Mapped[str] = mapped_column(String(100))
+    format: Mapped[str] = mapped_column(String(20))  # pain001 | csv
+    invoice_count: Mapped[int] = mapped_column(Integer)
+    totals: Mapped[dict] = mapped_column(JSONB)  # currency -> amount
+    filename: Mapped[str] = mapped_column(String(120))
+    content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

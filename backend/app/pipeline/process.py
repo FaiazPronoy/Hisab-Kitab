@@ -18,6 +18,7 @@ from app.db.models import (
     Document, ExtractedField, FailedTask, Invoice, Job, LineItem, Page, ProcessingEvent, ValidationResult,
 )
 from app.pipeline import images as image_mod
+from app.pipeline import memory
 from app.pipeline import pdf as pdf_mod
 from app.pipeline import sheets as sheet_mod
 from app.pipeline.extract import prompts
@@ -37,7 +38,7 @@ except ImportError:
 from app.pipeline.layout import build_lines, cells_to_lines
 from app.pipeline.ocr.run import ocr_image
 from app.pipeline.segment import segment
-from app.pipeline.validate import duplicates, routing, rules
+from app.pipeline.validate import duplicates, risk, routing, rules
 from app.storage.service import storage
 
 logger = logging.getLogger(__name__)
@@ -267,6 +268,8 @@ def run_sheet(db, doc: Document, path):
     ext = "." + doc.filename.rsplit(".", 1)[-1].lower()
     sheets = sheet_mod.read_sheets(path, ext, s.max_sheet_rows)
     doc.page_count = len(sheets)
+    if doc.role not in ("invoices", "ledger"):
+        doc.role = sheet_mod.guess_role(sheets)
     form_pages = []
     for sh in sheets:
         if sh.mode != "register":
@@ -425,6 +428,10 @@ def _save_invoice(db, doc, pages, result, **loc):
         vals = {k: v for k, v in typed(result).items()}
         for k, v in vals.items():
             setattr(inv, k, v)
+        # a supplier a reviewer renamed before is filed under the corrected name
+        inv.supplier_norm, _ = memory.canonical_supplier(db, inv.supplier_name)
+    if result.get("bank"):
+        inv.bank_account, inv.bank_evidence = result["bank"]["value"], result["bank"]
     db.add(inv)
     db.flush()
     for name, r in result["fields"].items():
@@ -457,6 +464,10 @@ def revalidate(db, inv: Invoice, pages_failed: int = 0):
     for v in list(inv.findings):
         db.delete(v)
     db.flush()
+    if inv.document.role == "ledger":
+        # payment records: kept for reconciliation, never reviewed or approved
+        inv.status = "ledger"
+        return []
     values = {c: getattr(inv, c) for c in ("invoice_number", "invoice_date", "due_date", "supplier_name", "customer_name",
                                            "currency", "subtotal", "tax", "discount", "shipping", "total")}
     values["doc_type"] = inv.doc_type
@@ -464,6 +475,7 @@ def revalidate(db, inv: Invoice, pages_failed: int = 0):
     meta = field_meta(inv)
     findings = rules.check(values, meta, items, inv.tax_lines or [], inv.flags or [])
     findings += duplicates.find(db, inv)
+    findings += risk.find(db, inv)
     for f in findings:
         db.add(ValidationResult(invoice_id=inv.id, rule_code=f["rule_code"], severity=f["severity"], field=f["field"],
                                 message=f["message"], expected=f["expected"], actual=f["actual"],

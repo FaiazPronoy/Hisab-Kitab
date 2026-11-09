@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.serialize import inv_detail
 from app.db.models import Document, Invoice, ReconciliationItem, ReconciliationRun
 from app.db.session import get_db
 from app.pipeline.reconcile.engine import compare_copies, match_ledger
@@ -35,6 +36,7 @@ def run(body: RunIn, db: Session = Depends(get_db)):
         if not ledger_doc or ledger_doc.kind != "sheet":
             raise HTTPException(422, "ledger_document_id must be an uploaded spreadsheet.")
         ledger = [_rec(i) for i in db.scalars(select(Invoice).where(Invoice.document_id == ledger_doc.id))]
+        # invoices read from PDFs and scans; a register usually lists the same invoices again
         q = select(Invoice).join(Document).where(Document.kind != "sheet")
         if body.invoice_document_ids:
             q = q.where(Invoice.document_id.in_(body.invoice_document_ids))
@@ -78,3 +80,16 @@ def get(run_id: uuid.UUID, db: Session = Depends(get_db)):
             "items": [{"category": i.category, "severity": i.severity, "field": i.field, "left_value": i.left_value,
                        "right_value": i.right_value, "delta": i.delta, "left_ref": i.left_ref, "right_ref": i.right_ref}
                       for i in r.items]}
+
+
+@router.get("/compare")
+def compare(left: uuid.UUID, right: uuid.UUID, db: Session = Depends(get_db)):
+    """Two invoices side by side, for a suspected duplicate. Nothing is stored."""
+    a, b = db.get(Invoice, left), db.get(Invoice, right)
+    if not a or not b:
+        raise HTTPException(404, "Invoice not found.")
+    li = lambda inv: [{"description": x.description, "amount": x.amount} for x in inv.line_items]  # noqa: E731
+    items = compare_copies(_rec(a), _rec(b), li(a), li(b))
+    return {"left": inv_detail(a, []), "right": inv_detail(b, []),
+            "items": [{k: (str(v) if k in ("left_value", "right_value", "delta") and v is not None else v)
+                       for k, v in it.items() if k not in ("left_ref", "right_ref")} for it in items]}

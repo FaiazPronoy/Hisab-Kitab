@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
@@ -15,7 +15,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_browser_key, require_key
+from app.api.deps import Actor, get_actor, require_browser_key, require_key
 from app.api.serialize import doc_out
 from app.core.config import get_settings
 from app.core.ratelimit import limiter
@@ -24,6 +24,7 @@ from app.db.session import get_db
 from app.pipeline import images as image_mod
 from app.pipeline import pdf as pdf_mod
 from app.pipeline.ingest import IngestError, check_file, safe_filename
+from app.pipeline.process import emit, revalidate
 from app.storage.service import storage
 
 router = APIRouter(tags=["documents"])
@@ -34,7 +35,8 @@ def enqueue(document_id: str):
     ingest.delay(document_id)
 
 
-def _handle_document_storage(db: Session, name: str, digest: str, info, size: int, tmp_path: Path, st) -> dict:
+def _handle_document_storage(db: Session, name: str, digest: str, info, size: int, tmp_path: Path, st,
+                             role: str | None = None) -> dict:
     existing = db.scalar(select(Document).where(Document.sha256 == digest))
     if existing:
         tmp_path.unlink(missing_ok=True)
@@ -60,7 +62,8 @@ def _handle_document_storage(db: Session, name: str, digest: str, info, size: in
     dest_path = st.path(key)
     try:
         tmp_path.replace(dest_path)
-        doc = Document(sha256=digest, filename=name, mime=info.mime, size_bytes=size, storage_key=key, kind=info.kind)
+        doc = Document(sha256=digest, filename=name, mime=info.mime, size_bytes=size, storage_key=key, kind=info.kind,
+                       role=role if info.kind == "sheet" else None)
         db.add(doc)
         db.flush()
         job = Job(document_id=doc.id, queue="ingest")
@@ -110,9 +113,14 @@ def _handle_document_storage(db: Session, name: str, digest: str, info, size: in
 @router.post("/documents", status_code=202)
 # uploads are the expensive call, so they get a tighter limit than the default
 @limiter.limit(lambda: get_settings().upload_rate_limit)
-async def upload(request: Request, files: list[UploadFile] = File(...), db: Session = Depends(get_db),
-                 idempotency_key: str | None = Header(None), api_key: str = Depends(require_key)):
+async def upload(request: Request, files: list[UploadFile] = File(...), role: str | None = Form(None),
+                 db: Session = Depends(get_db), idempotency_key: str | None = Header(None),
+                 api_key: str = Depends(require_key)):
     s = get_settings()
+    if role in ("", "auto"):
+        role = None
+    if role not in (None, "invoices", "ledger"):
+        raise HTTPException(422, "role must be invoices, ledger or auto.")
     rc = None
     idemp_redis_key = None
     if idempotency_key:
@@ -161,7 +169,7 @@ async def upload(request: Request, files: list[UploadFile] = File(...), db: Sess
                 tmp_path.unlink(missing_ok=True)
                 out.append({"filename": name, "status": "rejected", "error_code": e.code, "error_message": e.message})
                 continue
-            res = await run_in_threadpool(_handle_document_storage, db, name, digest, info, size, tmp_path, st)
+            res = await run_in_threadpool(_handle_document_storage, db, name, digest, info, size, tmp_path, st, role)
             out.append(res)
 
         if out and all(o["status"] == "rejected" for o in out) and len(out) == 1:
@@ -228,6 +236,35 @@ def _doc(db, document_id) -> Document:
 def get_document(document_id: uuid.UUID, detail: bool = True, db: Session = Depends(get_db),
                  _key: str = Depends(require_key)):
     return doc_out(_doc(db, document_id), detail=detail)
+
+
+class RoleIn(BaseModel):
+    role: str
+
+
+@router.patch("/documents/{document_id}")
+def set_role(document_id: uuid.UUID, body: RoleIn, db: Session = Depends(get_db), _key: str = Depends(require_key),
+             actor: Actor = Depends(get_actor)):
+    d = _doc(db, document_id)
+    if d.kind != "sheet":
+        raise HTTPException(422, "Only spreadsheets have a role.")
+    if body.role not in ("invoices", "ledger"):
+        raise HTTPException(422, "role must be invoices or ledger.")
+    if any(i.status == "approved" or i.payment_batch_id for i in d.invoices) and body.role == "ledger":
+        raise HTTPException(409, "Some rows are already approved; they cannot become ledger records.")
+    if d.role != body.role:
+        d.role = body.role
+        if body.role == "invoices":
+            for i in d.invoices:
+                i.status = "extracted"
+        db.flush()
+        for i in d.invoices:
+            revalidate(db, i, pages_failed=d.pages_failed)
+        if d.status in ("done", "needs_review"):
+            d.status = "needs_review" if any(i.status == "needs_review" for i in d.invoices) else "done"
+        emit(db, d, "role", "changed", message=f"{body.role} by {actor.name}")
+        db.commit()
+    return doc_out(d, detail=True)
 
 
 @router.get("/documents/{document_id}/pages/{n}")

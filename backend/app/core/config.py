@@ -35,6 +35,18 @@ class Settings(BaseSettings):
     page_batch_size: int = 20
     page_time_limit_s: int = 60
 
+    # reviewers sign in; corrections and approvals carry their name
+    require_login: bool = True
+    auth_secret: str = "change-me-local-dev-secret"
+    token_hours: int = 12
+    # invoices at or above this total (in their own currency) need an approver
+    approval_limit: float = 10000
+    supplier_memory: bool = True
+    # the paying company, written into pain.001 payment files
+    payer_name: str = "Demo Trading Ltd"
+    payer_iban: str = "GB33BUKB20201555555555"
+    payer_bic: str = "BUKBGB22"
+
     # Celery runs tasks inline when true (tests and the eval runner).
     celery_eager: bool = False
 

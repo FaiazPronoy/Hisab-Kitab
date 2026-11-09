@@ -7,6 +7,9 @@ os.environ["CELERY_EAGER"] = "true"
 os.environ["LLM_PROVIDER"] = "mock"
 os.environ["MAX_UPLOAD_MB"] = "2"
 os.environ.setdefault("STORAGE_DIR", "/tmp/docintel-test-storage")
+# most tests act through the API key alone; test_auth.py turns login back on
+os.environ["REQUIRE_LOGIN"] = "false"
+os.environ["UPLOAD_RATE_LIMIT"] = "10000/minute"
 
 import pytest  # noqa: E402
 
