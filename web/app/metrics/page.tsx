@@ -17,7 +17,7 @@ function Bars({ data, order, signal }: { data: Record<string, number>; order: st
     <ul className="space-y-3 px-4 py-4">
       {keys.map((k) => (
         <li key={k} className="grid grid-cols-[8.5rem_minmax(0,1fr)_3rem] items-center gap-3 text-sm max-sm:grid-cols-[7rem_minmax(0,1fr)_2.5rem]">
-          <span className="truncate text-[#3c4350]">{k.charAt(0).toUpperCase() + k.slice(1).replaceAll("_", " ")}</span>
+          <span className="truncate text-ink2">{k.charAt(0).toUpperCase() + k.slice(1).replaceAll("_", " ")}</span>
           <span className="h-2 rounded-sm bg-rule">
             <span className={clsx("block h-2 rounded-sm", signal[k] === "bad" ? "bg-[#c4242a]" : signal[k] === "warn" ? "bg-accent" : "bg-brand")}
               style={{ width: `${Math.max(data[k] ? 2 : 0, (data[k] / max) * 100)}%` }} />
@@ -48,9 +48,9 @@ export default function Metrics() {
       <Figures items={[
         { label: "Documents", value: nDocs, note: `${nInv} invoices found` },
         { label: "Processed cleanly", value: pct(m.success_rate), note: "done or sent to review" },
-        { label: "Failed", value: pct(m.failure_rate), note: `${docs.failed || 0} documents` },
-        { label: "Completed with errors", value: pct(m.completed_with_errors_rate), note: `${docs.completed_with_errors || 0} documents` },
+        { label: "Failed", value: pct(m.failure_rate), note: `${docs.failed || 0} failed, ${docs.completed_with_errors || 0} partly read` },
         { label: "Waiting for review", value: m.needs_review, note: "invoices" },
+        { label: "Approved, not paid", value: m.approved_unpaid ?? 0, note: m.ledger_rows ? `${m.ledger_rows} ledger rows kept apart` : "invoices" },
         { label: "LLM cost", value: `$${Number(m.llm.cost_usd).toFixed(2)}`, note: `${m.llm.calls} calls, ${Number(m.llm.tokens).toLocaleString()} tokens` },
       ]} />
 

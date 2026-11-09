@@ -1,9 +1,9 @@
 "use client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { ChevronLeft } from "lucide-react";
 import Link from "next/link";
-import { use } from "react";
+import { use, useState } from "react";
 import { api, type Doc } from "@/lib/api";
 import { Chip, Empty, ErrorNote, Loading, PageTitle, Panel } from "@/components/ui";
 
@@ -12,6 +12,23 @@ const READ_BY: Record<string, string> = { text_layer: "text layer", ocr: "OCR", 
 export default function DocumentDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const doc = useQuery({ queryKey: ["doc", id], queryFn: () => api<Doc>(`/documents/${id}`), refetchInterval: 3000 });
+  const qc = useQueryClient();
+  const [roleBusy, setRoleBusy] = useState(false);
+  const [roleErr, setRoleErr] = useState<string | null>(null);
+  const switchRole = async (role: string) => {
+    setRoleBusy(true);
+    setRoleErr(null);
+    try {
+      await api(`/documents/${id}`, { method: "PATCH", body: JSON.stringify({ role }) });
+      await qc.invalidateQueries({ queryKey: ["doc", id] });
+      qc.invalidateQueries({ queryKey: ["metrics"] });
+      qc.invalidateQueries({ queryKey: ["queue"] });
+    } catch (e: any) {
+      setRoleErr(e.message);
+    } finally {
+      setRoleBusy(false);
+    }
+  };
   const hist = useQuery({ queryKey: ["hist", id], queryFn: () => api<any[]>(`/documents/${id}/history`), refetchInterval: 5000 });
   const back = <Link href="/documents" className="mb-3 inline-flex items-center gap-1 text-sm text-muted hover:text-ink"><ChevronLeft size={16} aria-hidden /> Documents</Link>;
   if (doc.isLoading) return <>{back}<Loading rows={5} /></>;
@@ -26,7 +43,19 @@ export default function DocumentDetail({ params }: { params: Promise<{ id: strin
       {back}
       <PageTitle title={<span className="break-all">{d.filename}</span>}
         sub={<>{d.kind}, <span className="num">{d.page_count}</span> {unit}{d.pages_failed ? <>, <span className="num">{d.pages_failed}</span> failed</> : null}. Uploaded {new Date(d.created_at).toLocaleString()}.</>}
-        right={<Chip value={d.status} />} />
+        right={<>
+          {d.kind === "sheet" && d.role && (
+            <span className="flex items-center gap-2 text-sm text-muted">
+              {d.role === "ledger" ? "Payment ledger" : "Invoice list"}
+              <button type="button" disabled={roleBusy} onClick={() => switchRole(d.role === "ledger" ? "invoices" : "ledger")}
+                className="rounded-md border border-control px-2.5 py-1 text-xs font-medium text-ink hover:bg-paper disabled:opacity-50">
+                {roleBusy ? "Saving…" : d.role === "ledger" ? "Treat as invoices" : "Treat as ledger"}
+              </button>
+            </span>
+          )}
+          <Chip value={d.status} />
+        </>} />
+      {roleErr && <div className="mb-4"><ErrorNote>{roleErr}</ErrorNote></div>}
       {d.error_message && <div className="mb-6"><ErrorNote><b className="font-semibold">{d.error_code}</b>: {d.error_message}</ErrorNote></div>}
 
       <Panel title="Invoices found" meta={d.invoices?.length ? `${d.invoices.length}` : undefined} className="mb-6">
@@ -62,7 +91,7 @@ export default function DocumentDetail({ params }: { params: Promise<{ id: strin
             </div>
             <div className="max-h-80 overflow-auto">
               <table className="tbl text-sm">
-                <thead className="sticky top-0 bg-white"><tr><th className="r">Page</th><th>Read by</th><th>Why</th><th className="r">OCR conf.</th><th>Status</th></tr></thead>
+                <thead className="sticky top-0 bg-surface"><tr><th className="r">Page</th><th>Read by</th><th>Why</th><th className="r">OCR conf.</th><th>Status</th></tr></thead>
                 <tbody>
                   {d.pages.map((p) => (
                     <tr key={p.page_no}>
@@ -80,14 +109,14 @@ export default function DocumentDetail({ params }: { params: Promise<{ id: strin
         ) : <div className="hidden lg:block" />}
 
         <Panel title="Processing history" meta={events.length ? `${events.length} events` : undefined} className={clsx(!(d.pages && d.pages.length) && "lg:col-span-2")}>
-          {hist.isError ? <p className="px-4 py-4 text-sm text-[#8a1c1f]">Could not load the history.</p> : !events.length ? <p className="px-4 py-4 text-sm text-muted">No events yet.</p> : (
+          {hist.isError ? <p className="px-4 py-4 text-sm text-bad">Could not load the history.</p> : !events.length ? <p className="px-4 py-4 text-sm text-muted">No events yet.</p> : (
             <ol className="max-h-[22rem] overflow-auto px-4 py-2">
               {events.map((e, k) => (
                 <li key={k} className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-3 border-b border-rule py-2 text-sm last:border-0">
                   <span className="num pt-px text-xs text-muted">{new Date(e.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}</span>
                   <span className="min-w-0">
                     <span className="font-medium">{e.stage}</span>{" "}
-                    <span className={clsx(e.status === "failed" || e.status === "error" ? "text-[#8a1c1f]" : "text-muted")}>{e.status}</span>
+                    <span className={clsx(e.status === "failed" || e.status === "error" ? "text-bad" : "text-muted")}>{e.status}</span>
                     {(e.page_no || e.message || e.duration_ms) && (
                       <span className="block break-words text-[13px] text-muted">
                         {e.page_no ? `page ${e.page_no} ` : ""}{e.message}{e.duration_ms ? <> <span className="num">({e.duration_ms} ms)</span></> : null}

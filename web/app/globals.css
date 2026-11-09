@@ -1,23 +1,96 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
-  --color-brand: #1a365d;
-  --color-brand-dark: #12284a;
+  --color-brand: var(--c-brand);
+  --color-brand-dark: var(--c-brand-dark);
   --color-navy: #10233f;
   --color-amber: #f2a20c;
   --color-accent: #d97706;
-  --color-accent-ink: #92400e;
-  --color-ink: #161b26;
-  --color-muted: #545c6b;
-  --color-faint: #69707d;
-  --color-line: #e1e6ee;
-  --color-rule: #eef1f4;
-  --color-control: #cdd3db;
-  --color-ground: #f3f5f9;
-  --color-paper: #f7f8fa;
-  --color-active: #e6ebf2;
+  --color-accent-ink: var(--c-accent-ink);
+  --color-ink: var(--c-ink);
+  --color-ink2: var(--c-ink2);
+  --color-muted: var(--c-muted);
+  --color-faint: var(--c-faint);
+  --color-line: var(--c-line);
+  --color-rule: var(--c-rule);
+  --color-control: var(--c-control);
+  --color-ground: var(--c-ground);
+  --color-paper: var(--c-paper);
+  --color-active: var(--c-active);
+  --color-surface: var(--c-surface);
+  --color-sunken: var(--c-sunken);
+  --color-track: var(--c-track);
+  --color-good: var(--c-good);
+  --color-goodwash: var(--c-goodwash);
+  --color-bad: var(--c-bad);
+  --color-badwash: var(--c-badwash);
+  --color-badline: var(--c-badline);
+  --color-warnwash: var(--c-warnwash);
+  --color-warnline: var(--c-warnline);
+  --color-infowash: var(--c-infowash);
+  --color-plainwash: var(--c-plainwash);
   --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+}
+
+:root {
+  --c-brand: #1a365d;
+  --c-brand-dark: #12284a;
+  --c-accent-ink: #92400e;
+  --c-ink: #161b26;
+  --c-ink2: #3c4350;
+  --c-muted: #545c6b;
+  --c-faint: #69707d;
+  --c-line: #e1e6ee;
+  --c-rule: #eef1f4;
+  --c-control: #cdd3db;
+  --c-ground: #f3f5f9;
+  --c-paper: #f7f8fa;
+  --c-active: #e6ebf2;
+  --c-surface: #ffffff;
+  --c-sunken: #e7eaef;
+  --c-track: #dfe4ec;
+  --c-good: #0e4a26;
+  --c-goodwash: #e3f6ea;
+  --c-bad: #8a1c1f;
+  --c-badwash: #fdeceb;
+  --c-badline: #f3c9c6;
+  --c-warnwash: #fdf1dc;
+  --c-warnline: #f6dcae;
+  --c-infowash: #e8eef7;
+  --c-plainwash: #eef0f3;
+  color-scheme: light;
+}
+
+.dark {
+  --c-brand: #4f7fc4;
+  --c-brand-dark: #3d6aab;
+  --c-accent-ink: #f5b74e;
+  --c-ink: #e8ecf3;
+  --c-ink2: #c4ccd8;
+  --c-muted: #a3adbd;
+  --c-faint: #8f99a9;
+  --c-line: #283142;
+  --c-rule: #1f2735;
+  --c-control: #3a4558;
+  --c-ground: #0d1420;
+  --c-paper: #1a2231;
+  --c-active: #232d3e;
+  --c-surface: #141b28;
+  --c-sunken: #0f1622;
+  --c-track: #2b3446;
+  --c-good: #7ad7a0;
+  --c-goodwash: #12301f;
+  --c-bad: #f19a95;
+  --c-badwash: #3a1a1c;
+  --c-badline: #5c2a2c;
+  --c-warnwash: #3a2a10;
+  --c-warnline: #5c4316;
+  --c-infowash: #18263d;
+  --c-plainwash: #232b38;
+  color-scheme: dark;
 }
 
 html {
@@ -34,6 +107,7 @@ body {
 
 ::selection {
   background: #fde7c4;
+  color: #161b26;
 }
 
 :focus-visible {
@@ -83,7 +157,7 @@ body {
 
 mark {
   background: #fde7c4;
-  color: inherit;
+  color: #161b26;
   border-radius: 2px;
   padding: 0 1px;
 }

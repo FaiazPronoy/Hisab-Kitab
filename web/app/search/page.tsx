@@ -55,10 +55,10 @@ export default function Search() {
               <input autoFocus value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} aria-label="Query" type="search" spellCheck={false} autoComplete="off"
                 placeholder="INV-1042, a supplier name, or office furniture in March" className={clsx(inputCls, "w-full pl-9")} />
             </div>
-            <div className="flex rounded-md bg-[#e7eaef] p-0.5 text-sm max-sm:w-full" role="group" aria-label="Mode">
+            <div className="flex rounded-md bg-sunken p-0.5 text-sm max-sm:w-full" role="group" aria-label="Mode">
               {MODES.map((m) => (
                 <button type="button" key={m.id} title={m.hint} aria-pressed={f.mode === m.id} onClick={() => setF({ ...f, mode: m.id })}
-                  className={clsx("h-8 flex-1 rounded px-3 capitalize transition-colors max-sm:h-10", f.mode === m.id ? "bg-white font-medium text-ink shadow-[0_1px_2px_rgba(16,24,40,0.06)]" : "text-[#3c4350] hover:text-ink")}>
+                  className={clsx("h-8 flex-1 rounded px-3 capitalize transition-colors max-sm:h-10", f.mode === m.id ? "bg-surface font-medium text-ink shadow-[0_1px_2px_rgba(16,24,40,0.06)]" : "text-ink2 hover:text-ink")}>
                   {m.id}
                 </button>
               ))}

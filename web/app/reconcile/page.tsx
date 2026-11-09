@@ -40,7 +40,7 @@ export default function Reconcile() {
         <label htmlFor="ledger" className="pl-1 text-sm text-muted">Ledger</label>
         <select id="ledger" value={ledger} onChange={(e) => setLedger(e.target.value)} className={`${inputCls} min-w-0 flex-1 sm:max-w-sm`} disabled={sheets.isLoading}>
           <option value="">{sheets.isLoading ? "Loading spreadsheets…" : options.length ? "Choose a ledger spreadsheet" : "No spreadsheets uploaded"}</option>
-          {options.map((d) => <option key={d.id} value={d.id}>{d.filename}</option>)}
+          {options.map((d) => <option key={d.id} value={d.id}>{d.filename}{d.role === "ledger" ? " (payment ledger)" : d.role === "invoices" ? " (invoice list)" : ""}</option>)}
         </select>
         <Button onClick={go} disabled={!ledger || busy} className="max-sm:w-full">{busy && <Spinner />} {busy ? "Matching…" : "Run reconciliation"}</Button>
       </Card>
@@ -58,12 +58,12 @@ export default function Reconcile() {
           </p>
           <dl className={`mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line ${COLS[Math.min(summary.length, 6)] || "sm:grid-cols-3"}`}>
             {summary.map(([k, v]) => (
-              <div key={k} className="bg-white px-4 py-3">
+              <div key={k} className="bg-surface px-4 py-3">
                 <dt className="truncate text-xs text-muted">{label(k)}</dt>
                 <dd className={`num mt-0.5 text-xl ${v && k !== "matched" && !k.includes("total") ? "text-accent-ink" : "text-ink"}`}>{v}</dd>
               </div>
             ))}
-            {summary.length % 2 === 1 && <div className="bg-white sm:hidden" aria-hidden />}
+            {summary.length % 2 === 1 && <div className="bg-surface sm:hidden" aria-hidden />}
           </dl>
           <Card>
             <div className="overflow-x-auto">
@@ -72,7 +72,7 @@ export default function Reconcile() {
                 <tbody>
                   {items.map((i, k) => (
                     <tr key={k}>
-                      <td><span className="flex flex-wrap items-center gap-2"><Chip value={i.category === "matched" ? "matched" : i.severity} /><span className="text-[#3c4350]">{label(i.category)}</span></span></td>
+                      <td><span className="flex flex-wrap items-center gap-2"><Chip value={i.category === "matched" ? "matched" : i.severity} /><span className="text-ink2">{label(i.category)}</span></span></td>
                       <td className="text-muted">{i.field ? i.field.replaceAll("_", " ") : "-"}</td>
                       <td className="r num">{money(i.left_value)}</td>
                       <td className="r num">{money(i.right_value)}</td>

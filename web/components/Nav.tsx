@@ -1,11 +1,12 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
-import { BarChart3, FileStack, GitCompareArrows, Inbox, Menu, ScanSearch, UploadCloud, X } from "lucide-react";
+import { BarChart3, Banknote, FileStack, GitCompareArrows, Inbox, LogOut, Menu, Moon, ScanSearch, Sun, UploadCloud, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { setSession, toggleTheme, type Session } from "@/lib/session";
 
 const GROUPS = [
   { label: "Intake", links: [
@@ -16,6 +17,7 @@ const GROUPS = [
     { href: "/review", label: "Review queue", icon: Inbox, count: true },
     { href: "/search", label: "Search", icon: ScanSearch },
     { href: "/reconcile", label: "Reconciliation", icon: GitCompareArrows },
+    { href: "/payments", label: "Payments", icon: Banknote, pay: true },
   ] },
   { label: "Pipeline", links: [
     { href: "/metrics", label: "Metrics", icon: BarChart3 },
@@ -51,13 +53,14 @@ function Links({ onPick }: { onPick?: () => void }) {
   const on = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
   const m = useQuery({ queryKey: ["metrics"], queryFn: () => api<any>("/metrics/summary"), refetchInterval: 10000 });
   const waiting: number | undefined = m.data?.needs_review;
+  const unpaid: number | undefined = m.data?.approved_unpaid;
   return (
     <nav aria-label="Main">
       {GROUPS.map((g) => (
         <div key={g.label} className="mt-6 first:mt-0">
           <p className="mb-1.5 px-3 text-xs font-medium text-[#8197b8]">{g.label}</p>
           <ul className="space-y-0.5">
-            {g.links.map(({ href, label, icon: Icon, count }) => (
+            {g.links.map(({ href, label, icon: Icon, count, pay }: any) => (
               <li key={href}>
                 <Link href={href} onClick={onPick} aria-current={on(href) ? "page" : undefined}
                   className={clsx("relative flex h-9 items-center gap-2.5 rounded-md px-3 text-sm transition-colors max-lg:h-11",
@@ -67,6 +70,9 @@ function Links({ onPick }: { onPick?: () => void }) {
                   {label}
                   {count && waiting ? (
                     <span className="num ml-auto rounded bg-[#f2a20c] px-1.5 text-xs leading-5 font-medium text-[#12284a]" aria-label={`${waiting} invoices waiting`}>{waiting}</span>
+                  ) : null}
+                  {pay && unpaid ? (
+                    <span className="num ml-auto rounded bg-white/10 px-1.5 text-xs leading-5 text-[#c3cfe2]" aria-label={`${unpaid} approved invoices to pay`}>{unpaid}</span>
                   ) : null}
                 </Link>
               </li>
@@ -78,7 +84,35 @@ function Links({ onPick }: { onPick?: () => void }) {
   );
 }
 
-export default function Nav() {
+function Me({ session }: { session: Session }) {
+  const [dark, setDark] = useState(false);
+  useEffect(() => setDark(document.documentElement.classList.contains("dark")), []);
+  return (
+    <div className="rounded-lg bg-white/5 p-2.5">
+      <div className="flex items-center gap-2.5">
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-amber text-xs font-semibold text-[#12284a]" aria-hidden>
+          {session.name.split(" ").map((w) => w[0]).slice(0, 2).join("")}
+        </span>
+        <span className="min-w-0 flex-1 leading-tight">
+          <span className="block truncate text-sm font-medium text-white" title={session.name}>{session.name}</span>
+          <span className="block text-xs capitalize text-[#9fb2cf]">{session.role}</span>
+        </span>
+      </div>
+      <div className="mt-2 flex items-center gap-1 border-t border-white/10 pt-2">
+      <button type="button" onClick={() => setDark(toggleTheme())} title={dark ? "Use the light theme" : "Use the dark theme"}
+        className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md text-xs text-[#c3cfe2] hover:bg-white/10 hover:text-white max-lg:h-11">
+        {dark ? <Sun size={15} aria-hidden /> : <Moon size={15} aria-hidden />} {dark ? "Light" : "Dark"}
+      </button>
+      <button type="button" onClick={() => setSession(null)}
+        className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md text-xs text-[#c3cfe2] hover:bg-white/10 hover:text-white max-lg:h-11">
+        <LogOut size={15} aria-hidden /> Sign out
+      </button>
+      </div>
+    </div>
+  );
+}
+
+export default function Nav({ session }: { session: Session }) {
   const [open, setOpen] = useState(false);
   const path = usePathname();
   useEffect(() => setOpen(false), [path]);
@@ -94,11 +128,7 @@ export default function Nav() {
       <aside className="fixed inset-y-0 left-0 z-20 hidden w-60 flex-col bg-navy px-3 py-5 lg:flex">
         <div className="px-1"><Brand /></div>
         <div className="mt-9 flex-1 overflow-y-auto"><Links /></div>
-        <div className="mx-1 rounded-lg bg-white/5 p-3">
-          <p className="text-xs leading-5 text-[#c3cfe2]">
-            A value is kept only when it can be found on the page. Everything else goes to review.
-          </p>
-        </div>
+        <div className="mx-1"><Me session={session} /></div>
       </aside>
 
       <header className="sticky top-0 z-30 flex h-14 items-center justify-between bg-navy px-4 lg:hidden">
@@ -117,7 +147,8 @@ export default function Nav() {
               <X size={20} aria-hidden />
             </button>
           </div>
-          <div className="mt-4 overflow-y-auto"><Links onPick={() => setOpen(false)} /></div>
+          <div className="mt-4 flex-1 overflow-y-auto"><Links onPick={() => setOpen(false)} /></div>
+          <Me session={session} />
         </div>
       )}
     </>

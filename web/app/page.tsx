@@ -78,7 +78,7 @@ function QueueRow({ row, update }: { row: Row; update: (r: Partial<Row>) => void
           <div className="h-1 rounded-full bg-brand transition-[width]" style={{ width: `${pct}%` }} />
         </div>
       )}
-      {row.error && <p className="mt-1 text-sm text-[#8a1c1f]">{row.error}</p>}
+      {row.error && <p className="mt-1 text-sm text-bad">{row.error}</p>}
       {d && <PageGrid doc={d} />}
     </li>
   );
@@ -124,7 +124,7 @@ function Waiting() {
     <Panel title="Waiting for review" meta={q.data ? `${rows.length} ${rows.length === 1 ? "invoice" : "invoices"}` : undefined}
       right={rows.length > 0 ? <Link href="/review" className="text-sm font-medium text-brand hover:underline">View all</Link> : null}>
       {q.isLoading ? <p className="px-4 py-4 text-sm text-muted">Loading the queue…</p>
-        : q.isError ? <p className="px-4 py-4 text-sm text-[#8a1c1f]">Could not load the queue. <button type="button" className="underline" onClick={() => q.refetch()}>Retry</button></p>
+        : q.isError ? <p className="px-4 py-4 text-sm text-bad">Could not load the queue. <button type="button" className="underline" onClick={() => q.refetch()}>Retry</button></p>
         : rows.length === 0 ? <p className="px-4 py-4 text-sm text-muted">Nothing waiting. Every processed invoice passed its checks.</p> : (
         <ul>
           {rows.slice(0, 6).map((i) => {
@@ -156,6 +156,7 @@ export default function UploadPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [drag, setDrag] = useState(false);
   const [sending, setSending] = useState(false);
+  const [role, setRole] = useState("auto");
   const [err, setErr] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
 
@@ -166,6 +167,7 @@ export default function UploadPage() {
     setErr(null);
     const form = new FormData();
     list.forEach((f) => form.append("files", f));
+    form.append("role", role);
     try {
       const res = await api<any[]>("/documents", { method: "POST", body: form });
       setRows((r) => [...res.map((x, i) => ({
@@ -195,15 +197,23 @@ export default function UploadPage() {
             onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
             onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDrag(false); }}
             onDrop={(e) => { e.preventDefault(); setDrag(false); send(e.dataTransfer.files); }}
-            className={clsx("rounded-lg border bg-white transition-colors", drag ? "border-accent ring-4 ring-accent/15" : "border-line")}
+            className={clsx("rounded-lg border bg-surface transition-colors", drag ? "border-accent ring-4 ring-accent/15" : "border-line")}
           >
             <div className={clsx("m-2 flex flex-col items-start gap-5 rounded-md border border-dashed px-5 py-7 sm:flex-row sm:items-center sm:px-7 sm:py-9",
-              drag ? "border-accent bg-[#fffaf2]" : "border-control bg-paper")}>
+              drag ? "border-accent bg-warnwash" : "border-control bg-paper")}>
               <UploadCloud size={28} strokeWidth={1.5} className={drag ? "text-accent" : "text-brand"} aria-hidden />
               <div className="min-w-0 flex-1">
                 <p className="text-base font-semibold text-ink">{drag ? "Drop to upload" : "Drop invoices, scans or spreadsheets here"}</p>
                 <p className="mt-1 text-sm text-muted">Several files at once is fine. Large PDFs are split into pages and read in parallel.</p>
                 <p className="mt-3 text-xs text-muted" id="types">Accepts {TYPES.join(", ")}</p>
+                <label className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted">
+                  Spreadsheets are
+                  <select value={role} onChange={(e) => setRole(e.target.value)} className="h-8 rounded-md border border-control bg-surface px-2 text-xs text-ink max-sm:h-10">
+                    <option value="auto">detected from their headers</option>
+                    <option value="invoices">lists of invoices to check</option>
+                    <option value="ledger">payment ledgers to reconcile</option>
+                  </select>
+                </label>
               </div>
               <Button onClick={() => input.current?.click()} disabled={sending} aria-describedby="types">
                 {sending && <Spinner />} {sending ? "Uploading…" : "Choose files"}
@@ -213,7 +223,7 @@ export default function UploadPage() {
             </div>
             <ol className="grid grid-cols-2 gap-px overflow-hidden rounded-b-lg border-t border-line bg-line sm:grid-cols-4" aria-label="What happens to each file">
               {STEPS.map((s) => (
-                <li key={s.title} className="bg-white px-4 py-3">
+                <li key={s.title} className="bg-surface px-4 py-3">
                   <span className="block text-sm font-medium text-ink">{s.title}</span>
                   <span className="block text-xs leading-[18px] text-muted">{s.text}</span>
                 </li>
@@ -221,7 +231,7 @@ export default function UploadPage() {
             </ol>
           </div>
 
-          {err && <p className="text-sm text-[#8a1c1f]" role="alert">{err}</p>}
+          {err && <p className="text-sm text-bad" role="alert">{err}</p>}
 
           <Panel title="This session" meta={rows.length ? `${rows.length} ${rows.length === 1 ? "file" : "files"}` : undefined}>
             {rows.length === 0 ? (

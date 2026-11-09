@@ -9,7 +9,7 @@ export function Button({ variant = "primary", className, ...p }: ButtonHTMLAttri
       className={clsx(
         "inline-flex h-9 items-center justify-center gap-2 rounded-md px-3.5 text-sm font-medium whitespace-nowrap transition-colors active:translate-y-px disabled:pointer-events-none disabled:opacity-45 max-sm:h-11",
         variant === "primary" && "bg-brand text-white hover:bg-brand-dark",
-        variant === "ghost" && "border border-control bg-white text-ink hover:bg-paper",
+        variant === "ghost" && "border border-control bg-surface text-ink hover:bg-paper",
         variant === "danger" && "bg-red-700 text-white hover:bg-red-800",
         className,
       )}
@@ -18,12 +18,12 @@ export function Button({ variant = "primary", className, ...p }: ButtonHTMLAttri
 }
 
 export function Card({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={clsx("rounded-lg border border-line bg-white", className)}>{children}</div>;
+  return <div className={clsx("rounded-lg border border-line bg-surface", className)}>{children}</div>;
 }
 
 export function Panel({ title, meta, right, children, className }: { title: string; meta?: ReactNode; right?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={clsx("min-w-0 rounded-lg border border-line bg-white", className)}>
+    <section className={clsx("min-w-0 rounded-lg border border-line bg-surface", className)}>
       <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-4 py-3">
         <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
         {meta && <span className="text-xs text-muted">{meta}</span>}
@@ -36,11 +36,11 @@ export function Panel({ title, meta, right, children, className }: { title: stri
 
 type Tone = "good" | "warn" | "bad" | "info" | "plain";
 const TONES: Record<Tone, string> = {
-  good: "bg-[#e3f6ea] text-[#0e4a26]",
-  warn: "bg-[#fdf1dc] text-accent-ink",
-  bad: "bg-[#fdeceb] text-[#8a1c1f]",
-  info: "bg-[#e8eef7] text-brand",
-  plain: "bg-[#eef0f3] text-[#3c4350]",
+  good: "bg-goodwash text-good",
+  warn: "bg-warnwash text-accent-ink",
+  bad: "bg-badwash text-bad",
+  info: "bg-infowash text-brand",
+  plain: "bg-plainwash text-ink2",
 };
 const TONE_OF: Record<string, Tone> = {
   done: "good", auto_validated: "good", approved: "good", matched: "good",
@@ -62,6 +62,7 @@ export function Chip({ value, className }: { value: string; className?: string }
 export function Confidence({ c, reason, source }: { c: number | null; reason?: string | null; source?: string | null }) {
   if (reason) return <span className="shrink-0 text-xs text-muted">{reason.replaceAll("_", " ")}</span>;
   if (source === "user") return <span className="shrink-0 text-xs font-medium text-brand">corrected</span>;
+  if (source === "memory") return <span className="shrink-0 text-xs font-medium text-brand" title="Found with a label learned from an earlier correction">learned</span>;
   if (c == null) return null;
   const p = Math.round(c * 100);
   const low = c < 0.75;
@@ -69,17 +70,17 @@ export function Confidence({ c, reason, source }: { c: number | null; reason?: s
   if (!mid) return <span className="num w-9 shrink-0 text-right text-xs text-muted" title={`Confidence ${p}%`}>{p}%</span>;
   return (
     <span className="flex shrink-0 items-center gap-1.5" title={`Confidence ${p}%`}>
-      <span className="relative h-1 w-8 rounded-full bg-[#dfe4ec]" aria-hidden>
+      <span className="relative h-1 w-8 rounded-full bg-track" aria-hidden>
         <span className={clsx("absolute inset-y-0 left-0 rounded-full", low ? "bg-[#c4242a]" : mid ? "bg-accent" : "bg-brand")} style={{ width: `${p}%` }} />
       </span>
-      <span className={clsx("num w-9 text-right text-xs", low ? "text-[#8a1c1f]" : mid ? "text-accent-ink" : "text-muted")}>{p}%</span>
+      <span className={clsx("num w-9 text-right text-xs", low ? "text-bad" : mid ? "text-accent-ink" : "text-muted")}>{p}%</span>
     </span>
   );
 }
 
 export function Empty({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-control bg-white/60 px-4 py-4 text-sm text-muted">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-control bg-surface/60 px-4 py-4 text-sm text-muted">
       <div>{children}</div>
       {action}
     </div>
@@ -88,7 +89,7 @@ export function Empty({ children, action }: { children: ReactNode; action?: Reac
 
 export function Loading({ rows = 4 }: { rows?: number }) {
   return (
-    <div className="rounded-lg border border-line bg-white" role="status" aria-label="Loading">
+    <div className="rounded-lg border border-line bg-surface" role="status" aria-label="Loading">
       {Array.from({ length: rows }, (_, i) => (
         <div key={i} className="flex items-center gap-4 border-b border-rule px-4 py-[15px] last:border-0">
           <span className="h-3.5 w-40 rounded bg-rule" />
@@ -102,7 +103,7 @@ export function Loading({ rows = 4 }: { rows?: number }) {
 
 export function ErrorNote({ children, retry }: { children: ReactNode; retry?: () => void }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[#f3c9c6] bg-[#fdf4f3] px-4 py-3 text-sm text-[#8a1c1f]" role="alert">
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-badline bg-badwash px-4 py-3 text-sm text-bad" role="alert">
       <span>{children}</span>
       {retry && <button type="button" onClick={retry} className="font-medium underline underline-offset-2">Retry</button>}
     </div>
@@ -138,7 +139,7 @@ export function Figures({ items }: { items: { label: string; value: ReactNode; n
   return (
     <dl className="grid grid-cols-2 overflow-hidden rounded-lg border border-line bg-line gap-px sm:grid-cols-3 xl:grid-cols-6">
       {items.map((t) => (
-        <div key={t.label} className="bg-white px-4 py-3.5">
+        <div key={t.label} className="bg-surface px-4 py-3.5">
           <dt className="text-xs text-muted">{t.label}</dt>
           <dd className="num mt-1 text-[22px] leading-7 text-ink">{t.value}</dd>
           {t.note && <dd className="mt-0.5 text-xs text-muted">{t.note}</dd>}
@@ -148,4 +149,4 @@ export function Figures({ items }: { items: { label: string; value: ReactNode; n
   );
 }
 
-export const inputCls = "h-9 rounded-md border border-control bg-white px-3 text-sm text-ink placeholder:text-faint hover:border-[#b7bfca] focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/15 max-sm:h-11";
+export const inputCls = "h-9 rounded-md border border-control bg-surface px-3 text-sm text-ink placeholder:text-faint hover:border-faint focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/15 max-sm:h-11";

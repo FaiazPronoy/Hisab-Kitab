@@ -29,11 +29,11 @@ export default function Documents() {
     <>
       <PageTitle title="Documents" sub="Every uploaded file, newest first, with how far it got through the pipeline." />
       <div className="-mx-4 mb-4 overflow-x-auto px-4 sm:mx-0 sm:px-0" role="tablist" aria-label="Filter by status">
-        <div className="flex w-max gap-1 rounded-lg bg-[#e7eaef] p-1">
+        <div className="flex w-max gap-1 rounded-lg bg-sunken p-1">
           {tabs.map(([v, label, n]) => (
             <button key={v || "all"} type="button" role="tab" aria-selected={status === v} onClick={() => setStatus(v)}
               className={clsx("flex h-8 items-center gap-2 rounded-md px-3 text-sm transition-colors max-sm:h-10",
-                status === v ? "bg-white font-medium text-ink shadow-[0_1px_2px_rgba(16,24,40,0.06)]" : "text-[#3c4350] hover:text-ink")}>
+                status === v ? "bg-surface font-medium text-ink shadow-[0_1px_2px_rgba(16,24,40,0.06)]" : "text-ink2 hover:text-ink")}>
               {label}{m.data && <span className="num text-xs text-muted">{n}</span>}
             </button>
           ))}
@@ -50,7 +50,7 @@ export default function Documents() {
                 <tr key={d.id}>
                   <td className="max-w-[28rem]">
                     <Link href={`/documents/${d.id}`} className="block truncate font-medium text-ink hover:text-brand hover:underline" title={d.filename}>{d.filename}</Link>
-                    {d.error_message && <div className="mt-0.5 text-xs text-[#8a1c1f]">{d.error_message}</div>}
+                    {d.error_message && <div className="mt-0.5 text-xs text-bad">{d.error_message}</div>}
                   </td>
                   <td className="text-muted">{d.kind}</td>
                   <td className="r num">{pages(d)}</td>
@@ -69,7 +69,7 @@ export default function Documents() {
                     <Chip value={d.status} />
                   </span>
                   <span className="mt-1 block text-[13px] text-muted">{d.kind} · <span className="num">{pages(d)}</span> pages · {when(d.created_at)}</span>
-                  {d.error_message && <span className="mt-0.5 block text-xs text-[#8a1c1f]">{d.error_message}</span>}
+                  {d.error_message && <span className="mt-0.5 block text-xs text-bad">{d.error_message}</span>}
                 </Link>
               </li>
             ))}
