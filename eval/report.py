@@ -26,7 +26,9 @@ def write(s: dict, path: Path):
         "",
         "## Headline",
         "",
-        _t(["Metric", "Value"], [[k.replace("_", " "), v] for k, v in s["headline"].items()]),
+        _t(["Metric", "Value"], [[k.replace("_", " "), v] for k, v in s["headline"].items()
+                                   # the same figures are kept under a second name for older reports
+                                   if k not in ("hallucination_rate", "routing_recall", "routing_recall_reached", "confidence_intervals")]),
         "",
     ]
     if "comparison" in s:
@@ -54,6 +56,8 @@ def write(s: dict, path: Path):
             "## Rule-based baseline vs LLM",
             "",
             _t(["Metric", "Rule parser (mock)", "Gemini 3.5 Flash-Lite"], comp_rows),
+            "",
+            "The Gemini column comes from an earlier run on the same dataset, before the last grounding and timeout fixes; 17 of its 237 documents failed in that run. The mock column is from this run.",
             "",
         ]
     lines += [
