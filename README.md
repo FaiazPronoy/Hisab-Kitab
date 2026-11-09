@@ -97,21 +97,23 @@ More detail in [docs/architecture.md](docs/architecture.md) and [DECISIONS.md](D
 
 Measured with `make eval` on 180 generated invoices (126 in the scored test split), 45 simulated scans, 12 multi-invoice PDFs, a ledger with planted mismatches and six broken files. Full tables in [EVALUATION.md](EVALUATION.md).
 
-| Metric | Offline rule parser | Gemini Flash-Lite |
+| Metric | Offline rule parser | Gemini 3.1 Flash-Lite |
 |---|---|---|
-| Field F1 on digital PDFs (macro) | 0.997 | 0.999 |
-| Invoices with every key field right | 0.976 | 0.992 |
+| Field F1 on digital PDFs (macro) | 0.997 | 0.990 |
+| Invoices with every key field right | 0.976 | 0.968 |
 | Values given where the document has none | 0 | 0 |
-| Wrong or planted invoices sent to review | 16 of 18 | all |
-| Line item F1 | 0.922 | 1.000 |
+| Wrong or planted invoices sent to review | 16 of 18 | 16 of 18 |
+| Line item F1 | 0.922 | 0.964 |
 | Multi-invoice PDFs split correctly | 12 of 12 | 12 of 12 |
-| Documents processed without a pipeline failure | 1.000 | 0.928 |
-| LLM cost for the whole run | $0 | $0.99 |
+| Documents processed without a pipeline failure | 1.000 | 0.992 |
+| LLM cost for the whole run | $0 | $0.63 |
 
-The Gemini column is from an earlier run on the same data, before the last fixes. Other measured results with the offline parser:
+Cost is estimated from token counts at paid-tier prices. The run used the free AI Studio tier, so nothing was billed. In the Gemini run 2 of 237 documents failed because a Gemini call still failed after its retries; the two planted invoices it did not send to review were inside those documents.
+
+Other measured results with the offline parser:
 
 - Scans: field F1 0.99 on clean, 1.00 on medium and 0.71 on heavy degradation (15 each)
-- Planted problems (wrong totals, missing tax or number, duplicates, conflicting duplicates): all caught
+- Planted problems: 16 of 17 caught. The miss is a wrong total on an invoice with no subtotal line
 - Ledger reconciliation: every planted mismatch, missing row and ambiguous row found
 - Broken files (truncated, renamed, empty, encrypted, fake workbook, wrong type): 6 of 6 handled with the right error
 

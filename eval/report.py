@@ -41,6 +41,20 @@ def write(s: dict, path: Path):
         g_cost = g_s.get("cost", {}).get("cost_usd", 0.0) if g_s.get("cost") else 0.0
         m_lines = m_s.get("extraction_digital", {}).get("line_items", {}).get("f1", 0.0)
         g_lines = g_s.get("extraction_digital", {}).get("line_items", {}).get("f1", 0.0)
+        g_cfg = g_s.get("config", {})
+        g_name = str(g_cfg.get("llm_model", "Gemini")).replace("gemini-", "Gemini ").replace("-flash-lite", " Flash-Lite").replace("-flash", " Flash")
+        g_rel = g_s.get("reliability", {})
+        g_failed = g_rel.get("failed", 0)
+        g_note = (f"Both columns were measured on the same generated dataset (seed {g_cfg.get('seed')}, "
+                  f"{g_cfg.get('n_generated')} invoices) with the same code. ")
+        if g_failed:
+            causes = "; ".join(f"{k.replace(' | ', ', ')}: {v}" for k, v in g_s.get("failure_causes", {}).items())
+            g_note += (f"{g_failed} of the {g_rel.get('documents')} documents failed in the Gemini run "
+                       f"({causes or 'see failure causes'}). ")
+        else:
+            g_note += f"No document failed in the Gemini run ({g_rel.get('documents')} documents). "
+        g_note += ("The Gemini cost is estimated from the token counts at paid-tier prices; "
+                   "the run used the free AI Studio tier, so nothing was billed.")
         comp_rows = [
             ["digital macro f1", m_head.get("digital_macro_f1"), g_head.get("digital_macro_f1")],
             ["digital all key fields correct", m_head.get("digital_all_key_fields_correct"), g_head.get("digital_all_key_fields_correct")],
@@ -55,9 +69,9 @@ def write(s: dict, path: Path):
         lines += [
             "## Rule-based baseline vs LLM",
             "",
-            _t(["Metric", "Rule parser (mock)", "Gemini 3.5 Flash-Lite"], comp_rows),
+            _t(["Metric", "Rule parser (mock)", g_name], comp_rows),
             "",
-            "The Gemini column comes from an earlier run on the same dataset, before the last grounding and timeout fixes; 17 of its 237 documents failed in that run. The mock column is from this run.",
+            g_note,
             "",
         ]
     lines += [
