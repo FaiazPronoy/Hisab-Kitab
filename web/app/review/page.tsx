@@ -2,34 +2,59 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { api, type InvoiceSummary } from "@/lib/api";
-import { Card, Chip, Empty, PageTitle, Spinner } from "@/components/ui";
+import { Card, Chip, Empty, ErrorNote, Loading, PageTitle } from "@/components/ui";
+
+const SEV = ["critical", "error", "warning"] as const;
+
+function Findings({ i }: { i: InvoiceSummary }) {
+  return (
+    <span className="flex flex-wrap gap-1">
+      {SEV.map((s) => (i.findings[s] ? <Chip key={s} value={`${i.findings[s]} ${s}`} /> : null))}
+    </span>
+  );
+}
 
 export default function ReviewQueue() {
   const q = useQuery({ queryKey: ["queue"], queryFn: () => api<InvoiceSummary[]>("/review-queue?limit=200"), refetchInterval: 5000 });
+  const rows = q.data || [];
   return (
     <>
-      <PageTitle title="Review queue" sub="Invoices with errors, missing key fields or more than one warning, most severe first." />
-      {q.isLoading ? <Spinner /> : !q.data?.length ? <Empty>Nothing waiting for review.</Empty> : (
-        <Card className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-paper text-left text-muted"><tr>
-              <th className="px-4 py-2 font-medium">Invoice</th><th className="px-4 py-2 font-medium">Supplier</th>
-              <th className="px-4 py-2 text-right font-medium">Total</th><th className="px-4 py-2 font-medium">Findings</th>
-              <th className="px-4 py-2 font-medium">File</th></tr></thead>
-            <tbody className="divide-y divide-line">
-              {q.data.map((i) => (
-                <tr key={i.id} className="hover:bg-paper">
-                  <td className="px-4 py-2"><Link href={`/invoices/${i.id}`} className="text-brand underline">{i.invoice_number || "(no number)"}</Link></td>
-                  <td className="px-4 py-2">{i.supplier_name}</td>
-                  <td className="px-4 py-2 text-right tabular-nums">{i.total} {i.currency}</td>
-                  <td className="space-x-1 px-4 py-2">
-                    {(["critical", "error", "warning"] as const).map((s) => (i.findings[s] ? <Chip key={s} value={`${i.findings[s]} ${s}`} className="ml-1" /> : null))}
-                  </td>
-                  <td className="px-4 py-2 text-muted">{i.filename}</td>
+      <PageTitle title="Review queue"
+        sub="Invoices with errors, missing key fields or more than one warning, most severe first."
+        right={rows.length > 0 ? <Link href={`/invoices/${rows[0].id}`} className="inline-flex h-9 items-center rounded-md bg-brand px-3.5 text-sm font-medium text-white hover:bg-brand-dark max-sm:h-11">Start with the first</Link> : null} />
+      {q.isLoading ? <Loading rows={6} /> : q.isError ? <ErrorNote retry={() => q.refetch()}>Could not load the review queue.</ErrorNote>
+        : !rows.length ? <Empty>Nothing waiting for review. Every processed invoice passed its checks.</Empty> : (
+        <Card>
+          <div className="border-b border-line px-4 py-3 text-sm text-muted"><span className="num text-ink">{rows.length}</span> {rows.length === 1 ? "invoice" : "invoices"} waiting</div>
+          <table className="tbl hidden text-sm md:table">
+            <thead><tr><th>Supplier</th><th>Invoice</th><th className="r">Total</th><th>Findings</th><th>File</th></tr></thead>
+            <tbody>
+              {rows.map((i) => (
+                <tr key={i.id}>
+                  <td><Link href={`/invoices/${i.id}`} className="font-medium text-ink hover:text-brand hover:underline">{i.supplier_name || "Unknown supplier"}</Link></td>
+                  <td className="num text-[13px]">{i.invoice_number || <span className="font-sans text-muted">no number</span>}</td>
+                  <td className="r num whitespace-nowrap">{i.total ?? "-"} <span className="text-xs text-muted">{i.currency}</span></td>
+                  <td><Findings i={i} /></td>
+                  <td className="max-w-[16rem] truncate text-muted" title={i.filename}>{i.filename}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          <ul className="md:hidden">
+            {rows.map((i) => (
+              <li key={i.id} className="border-b border-rule last:border-0">
+                <Link href={`/invoices/${i.id}`} className="block px-4 py-3 active:bg-paper">
+                  <span className="flex items-baseline gap-3">
+                    <span className="min-w-0 flex-1 truncate font-medium">{i.supplier_name || "Unknown supplier"}</span>
+                    <span className="num shrink-0">{i.total ?? "-"} <span className="text-xs text-muted">{i.currency}</span></span>
+                  </span>
+                  <span className="mt-1 flex flex-wrap items-center gap-2 text-[13px] text-muted">
+                    <span className="num">{i.invoice_number || "no number"}</span><Findings i={i} />
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
         </Card>
       )}
     </>
