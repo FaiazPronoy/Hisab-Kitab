@@ -65,6 +65,23 @@ stateDiagram-v2
   failed --> queued: reprocess all
 ```
 
-Invoice: `extracted` then `auto_validated` or `needs_review`, then `approved` by a reviewer. A correction to an approved invoice sends it back to `needs_review` until approved again.
+Invoice: `extracted` then `auto_validated` or `needs_review`, then `approved` by a reviewer. A correction to an approved invoice sends it back to `needs_review` until approved again; once it is in a payment file it cannot be changed. Rows of a payment ledger get `ledger` and are never reviewed.
 
 Job: `queued`, `running`, `succeeded` or `failed`. Transient errors (LLM 429 and 5xx, timeouts, network) retry with exponential backoff and jitter up to 3 times; failures are kept in `failed_tasks`.
+
+## After review
+
+```mermaid
+flowchart LR
+  F[Reviewer fixes a field] --> L[Label before the value is stored for the supplier]
+  L --> N[Next invoice from that supplier]
+  N --> G{Value under the label passes grounding?}
+  G -- yes --> K[Kept, marked learned]
+  G -- no --> E[Field stays empty, goes to review]
+  A[Approved invoice] --> H[Supplier history: bank account, usual amount, currency]
+  H --> R[Checks on the next invoice]
+  A --> P[Payment file, pain.001 or CSV]
+  P --> X[Invoice locked]
+```
+
+A clerk approves under `APPROVAL_LIMIT`; an approver is needed above it, and not the same person who changed the amounts. Ledger spreadsheets skip this path entirely: their rows only feed reconciliation.

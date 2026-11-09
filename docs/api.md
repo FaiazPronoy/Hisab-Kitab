@@ -4,9 +4,11 @@ Base path `/api/v1`. Every route needs the `X-API-Key` header (the browser query
 
 Ids in paths and bodies are UUIDs; anything else gets a 422.
 
+Corrections, approvals, role changes and payment files also need a signed-in reviewer (`Authorization: Bearer <token>` from `/auth/login`) unless `REQUIRE_LOGIN=false`. A clerk gets a 403 when approving an invoice at or above `APPROVAL_LIMIT`.
+
 | Method | Path | Purpose |
 | --- | --- | --- |
-| POST | `/documents` | multipart, field `files` (many). 202 with `[{document_id, job_id, status, duplicate_of}]`. A file that fails the type check comes back as `rejected` with `error_code`; a single rejected file returns 422. Over the size limit: 413. |
+| POST | `/documents` | multipart, field `files` (many) and optional `role` (`auto`, `invoices`, `ledger`) for spreadsheets. 202 with `[{document_id, job_id, status, duplicate_of}]`. A file that fails the type check comes back as `rejected` with `error_code`; a single rejected file returns 422. Over the size limit: 413. |
 | GET | `/documents` | `status`, `kind`, `cursor`, `limit` |
 | GET | `/documents/{id}` | progress, pages (source, reason, OCR confidence), invoices |
 | GET | `/documents/{id}/pages/{n}` | page text and numbered lines with boxes |
@@ -25,6 +27,13 @@ Ids in paths and bodies are UUIDs; anything else gets a 422.
 | GET | `/invoices/export?format=csv` | CSV with formula injection neutralized |
 | GET | `/metrics/summary` | counts, success and failure rates, p50 and p95 per page source, LLM calls and cost |
 | POST | `/maintenance/sweep` | `timeout_seconds` query param (300 to 86400, default 900). Recovers stuck finalizing documents, re-dispatches pending pages, or fails timed-out runs |
+| PATCH | `/documents/{id}` | `{role: invoices or ledger}` for a spreadsheet; re-runs the checks on its rows |
+| POST | `/auth/login` | `{username, password}`, returns a session token for the `Authorization: Bearer` header |
+| GET | `/auth/me` | the signed-in reviewer and the approval limit |
+| GET | `/compare?left=&right=` | two invoices side by side with their differences; nothing is stored |
+| GET | `/payments/ready` | approved invoices not yet in a payment file, earliest due first |
+| POST | `/payments/batches` | `{invoice_ids, format: pain001 or csv, execution_date}`, approver only. 409 if an invoice is not approved or already paid, 422 if bank details are missing |
+| GET | `/payments/batches`, `/payments/batches/{id}/file` | payment files and their download |
 | GET | `/health` | database check |
 
 ## Example

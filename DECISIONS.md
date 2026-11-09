@@ -91,3 +91,23 @@ The brief suggested shadcn/ui. The screens need a button, a card, a status chip 
 ## 18. Security choices
 
 API key on every route (constant-time compare), CORS locked to the web origin, upload rate limit, size, file-count, page, frame, row and pixel caps, magic-byte checks, UUID storage keys, macro workbook and zip-bomb rejection, encrypted PDFs rejected with a clear reason, CSV export that neutralizes formula injection, non-root containers and structured logs that carry ids and counts only, never document text or field values. Text inside documents is wrapped in `<untrusted_document>` tags; instruction-like text raises `SUSPICIOUS_CONTENT`. The residual risk: a fake total that is really printed passes grounding; arithmetic checks and reconciliation are what catch it.
+
+## 19. Supplier memory learns labels, never values
+
+When a reviewer fixes a field, the fixed value is looked up on the page and the words printed before it ("Our ref", "Factuur nr") are stored for that supplier. On the next invoice from the supplier, an empty field is searched for under that label, and whatever is found goes through the same grounding check as a model answer. So memory can only point at text that is on the page; it cannot invent a number, and one wrong correction cannot spread a wrong value. A corrected supplier name is stored as an alias, so a misspelt header is filed under the right supplier for duplicate and history checks. EVALUATION.md measures it with memory off and on over the same invoices.
+
+## 20. Reviewers, an approval limit and four eyes
+
+Sessions are an HMAC-signed token from the standard library and passwords use scrypt, so no extra package is needed. The API key still guards every route; the session only says who is acting. Two roles: a clerk corrects and approves under `APPROVAL_LIMIT`, an approver can also approve above it and create payment files. Whoever changed the amounts, supplier or bank details of a large invoice cannot approve it as well. The limit is compared with the total in the invoice's own currency; one limit per currency would be the next step.
+
+## 21. Supplier history as a fraud check
+
+Changed bank details on a supplier invoice are the usual way invoice fraud works, so the IBAN or account on each invoice is compared with the supplier's earlier invoices. Only approved or auto-validated invoices count as history, so a fraudulent invoice cannot vouch for the next one. A change is an error and stops the invoice; the message asks for a phone check with the supplier, which is what an AP team should do anyway.
+
+## 22. Payment files
+
+Approved invoices are paid through an ISO 20022 `pain.001.001.09` file, the format European and many other banks accept for bulk credit transfers, or a CSV for banks without it. The rows are locked while the file is built, and an invoice in a file cannot be edited or added to a second file. The file is kept in the database so it can be downloaded again.
+
+## 23. Spreadsheets have a role
+
+A payment ledger and a list of invoices look alike but mean different things: ledger rows are payment records to reconcile against, invoice-list rows are invoices to check. The role is guessed from sheet names and headers ("Payments", "Paid", "Remittance") and can be set on upload or changed later. Ledger rows are never reviewed, approved or counted as duplicates.

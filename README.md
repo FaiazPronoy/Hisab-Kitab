@@ -15,7 +15,8 @@ Every extracted value points to the line it came from on the page. If the system
 
 | | |
 |---|---|
-| ![Review workstation](docs/images/workstation.png) | ![Reconciliation](docs/images/reconciliation.png) |
+| ![Review workstation: an invoice stopped for new bank details](docs/images/workstation.png) | ![Suspected duplicate side by side](docs/images/compare.png) |
+| ![Reconciliation against a payment ledger](docs/images/reconciliation.png) | ![Payment file from approved invoices](docs/images/payments.png) |
 | ![Search](docs/images/search.png) | ![Metrics](docs/images/metrics.png) |
 
 ---
@@ -33,17 +34,28 @@ Every extracted value points to the line it came from on the page. If the system
 - The model must quote the line each value came from; code checks that the quote and the number are really on the page
 - Several invoices in one PDF are split into separate records
 - Spreadsheets: ledger-style sheets are mapped once and every row is parsed in code, so a long sheet never goes to the LLM row by row
+- A spreadsheet is either a list of invoices or a payment ledger, guessed from its headers or chosen on upload; ledger rows are only used for reconciliation
+- IBANs (with their check digits) and labelled account numbers are read from the page, with the line they came from
 
 **Checking the data**
 - All money maths in `Decimal`: line totals, subtotal, tax and total, with tolerances in `backend/config/validation.yaml`
 - Missing fields, odd dates, unclear currency and low confidence are flagged
 - Four kinds of duplicate: same file, same invoice, same number with a different total, and near-duplicates such as `INV-1O8` for `INV-108`
 - Invoices are matched against an uploaded ledger, and two copies of an invoice can be compared line by line
+- Each supplier's approved history is a check of its own: changed bank details stop the invoice, and an amount far above the supplier's usual, a new currency or a first invoice are flagged
 
 **Reviewing**
 - The page image with the evidence box drawn on it, next to the extracted fields
 - Fixing a value re-runs every check at once, and every change is kept in an audit log
 - A review queue sorted by how serious the problems are
+- Reviewers sign in. A clerk approves invoices under a limit; larger ones need an approver, and whoever changed the amounts on a large invoice cannot also approve it
+- Supplier memory: when a reviewer fixes a field, the label printed before the value is remembered for that supplier and used on its next invoices. A value found this way still has to be on the page
+- A suspected duplicate opens side by side with the invoice it resembles
+- Light and dark themes, and layouts for phone, tablet and desktop
+
+**Paying**
+- Approved invoices become an ISO 20022 `pain.001` payment file or a CSV for bank upload
+- An invoice in a payment file is locked, so it cannot be changed or paid twice
 
 **Search and background work**
 - Keyword, semantic and combined search with filters
@@ -95,7 +107,7 @@ More detail in [docs/architecture.md](docs/architecture.md) and [DECISIONS.md](D
 
 ## Results
 
-Measured with `make eval` on 180 generated invoices (126 in the scored test split), 45 simulated scans, 12 multi-invoice PDFs, a ledger with planted mismatches and six broken files. Full tables in [EVALUATION.md](EVALUATION.md).
+Measured with `make eval` on 180 generated invoices (126 in the scored test split), 45 simulated scans, 12 multi-invoice PDFs, a ledger with planted mismatches, six broken files and 30 invoices from six recurring suppliers. Full tables in [EVALUATION.md](EVALUATION.md).
 
 | Metric | Offline rule parser | Gemini 3.1 Flash-Lite |
 |---|---|---|
@@ -116,6 +128,8 @@ Other measured results with the offline parser:
 - Planted problems: 16 of 17 caught. The miss is a wrong total on an invoice with no subtotal line
 - Ledger reconciliation: every planted mismatch, missing row and ambiguous row found
 - Broken files (truncated, renamed, empty, encrypted, fake workbook, wrong type): 6 of 6 handled with the right error
+- Supplier memory: six suppliers print their invoice number after a label the parser does not know. After one correction per supplier, the number was right on 24 of their next 24 invoices with memory on and 0 of 24 with it off; the reviewer fixed 6 numbers instead of 28
+- Changed bank details: 2 of 2 planted IBAN changes stopped, no false alarm on 22 genuine invoices from the same suppliers
 
 Large files, one worker with two processes:
 
@@ -139,6 +153,9 @@ Large files, one worker with two processes:
 | LOW_CONFIDENCE | a key field below 0.78, or read from an image | |
 | GROUNDING_FAILED | the value was not found in the document and was removed | |
 | DUP_INVOICE, DUP_CONFLICT, DUP_SUSPECTED | same invoice; same number with another total; near-duplicate | supplier similarity 0.85, dates within 3 days |
+| BANK_CHANGED | the IBAN or account differs from the supplier's approved invoices | |
+| AMOUNT_OUTLIER, CURRENCY_CHANGED | over 3 times the supplier's median total; a currency the supplier never used | 3 earlier invoices |
+| NEW_SUPPLIER | first invoice from a supplier, shown for information | |
 | SUSPICIOUS_CONTENT | instructions written inside the document | |
 
 An invoice goes to review on any error, more than one warning, a missing or removed key field, a failed page, a duplicate or suspicious text.
@@ -155,14 +172,15 @@ docker compose up -d --build
 make seed
 ```
 
-- Web app: http://localhost:3000
+- Web app: http://localhost:3000, sign in as `nadia` / `demo-clerk` (clerk) or `farhan` / `demo-approver` (approver)
 - API docs: http://localhost:8000/docs (key `local-dev-key` in the `X-API-Key` header)
+- Other reviewers: `docker compose run --rm api python -m scripts.create_user <username> "<name>" clerk|approver <password>`
 
 On Windows without `make`, run the command after the colon in the Makefile, for example `docker compose run --rm api python -m scripts.seed_demo`.
 
 | Command | What it does |
 |---|---|
-| `make seed` | uploads a demo batch: clean PDF, rotated scan, broken PDF, three invoices in one PDF, a wrong total, a ledger and a CSV |
+| `make seed` | creates the two demo reviewers and uploads a demo batch: clean PDF, rotated scan, broken PDF, three invoices in one PDF, a wrong total, a ledger, a CSV and an invoice with new bank details |
 | `make test` | unit and integration tests |
 | `make eval` | builds the dataset, runs it through the API and writes EVALUATION.md |
 | `make bigpdf` | builds a 1,000-page digital PDF and a 100-page scan |
@@ -182,13 +200,19 @@ Copy `.env.example` to `.env`. The `.env` file is never committed.
 | `LLM_BUDGET_USD` | stops LLM calls once this much has been spent |
 | `API_KEY` | key the web app and clients send in `X-API-Key` |
 | `MAX_UPLOAD_MB`, `MAX_PAGES`, `MAX_SHEET_ROWS` | upload limits |
+| `AUTH_SECRET` | signs reviewer sessions; set a long random value outside local use |
+| `REQUIRE_LOGIN` | `true` by default; corrections, approvals and payment files need a signed-in reviewer |
+| `APPROVAL_LIMIT` | invoices at or above this total need an approver (default 10000) |
+| `SUPPLIER_MEMORY` | learn labels from corrections (default `true`) |
+| `PAYER_NAME`, `PAYER_IBAN`, `PAYER_BIC` | the paying company written into `pain.001` files |
 
 ---
 
 ## Tests
 
-- `make test` runs **185 tests** against a real PostgreSQL, with Celery tasks run inline
+- `make test` runs **200 tests** against a real PostgreSQL, with Celery tasks run inline
 - They cover file checks, OCR fallbacks, spreadsheet parsing, extraction and grounding, every validation rule at its tolerance, duplicates, reconciliation, the API, corrections and audit, reprocessing failed pages, recovery of stuck jobs and broken LLM answers
+- And the review side: sign-in and roles, the approval limit and four-eyes rule, supplier memory, changed bank details, ledger and invoice-list sheets, and payment files checked against the pain.001 structure
 - GitHub Actions runs the tests, ruff and the web build on every push
 
 ---
@@ -198,7 +222,8 @@ Copy `.env.example` to `.env`. The `.env` file is never committed.
 ```
 backend/
   app/api/           routes, auth, response shapes
-  app/pipeline/      ingest, pdf, ocr, sheets, layout, segment, extract, validate, reconcile, index
+  app/pipeline/      ingest, pdf, ocr, sheets, layout, segment, extract, validate, reconcile, index,
+                     memory (supplier labels), payments (pain.001 and CSV)
   app/workers/       Celery app and tasks
   app/db/            models and migrations
   config/            validation.yaml
@@ -206,7 +231,7 @@ backend/
 eval/                dataset generator, scan simulator, runner, scorer, report
 web/                 Next.js app
 docs/                architecture, schema, API, screenshots
-scripts/             demo seed, large-file benchmark
+scripts/             demo seed, reviewer accounts, large-file benchmark
 ```
 
 ---

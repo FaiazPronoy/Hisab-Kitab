@@ -13,12 +13,14 @@ erDiagram
   invoices ||--o{ validation_results : has
   invoices ||--o{ corrections : audited_by
   reconciliation_runs ||--o{ reconciliation_items : has
+  payment_batches ||--o{ invoices : pays
 
   documents {
     uuid id PK
     text sha256 UK
     text filename
     text kind "pdf, image, sheet"
+    text role "sheets: invoices or ledger"
     text status
     int page_count
     int pages_done
@@ -55,6 +57,11 @@ erDiagram
     numeric tax
     numeric total
     text currency
+    text bank_account "IBAN or account read from the page"
+    jsonb bank_evidence
+    text approved_by
+    timestamptz approved_at
+    uuid payment_batch_id FK
     int version "optimistic locking"
     tsvector search_tsv
     vector embedding "384"
@@ -108,6 +115,34 @@ erDiagram
     text delta
     jsonb left_ref
     jsonb right_ref
+  }
+  payment_batches {
+    uuid id PK
+    text format "pain001 or csv"
+    int invoice_count
+    jsonb totals "per currency"
+    text filename
+    text content
+    text created_by
+  }
+  users {
+    int id PK
+    text username UK
+    text name
+    text role "clerk or approver"
+    text password_hash "scrypt"
+  }
+  supplier_labels {
+    int id PK
+    text supplier_norm
+    text field
+    text label
+    int hits
+  }
+  supplier_aliases {
+    text alias_norm PK
+    text supplier_norm
+    text supplier_name
   }
 ```
 
