@@ -123,7 +123,8 @@ def draw(c: canvas.Canvas, inv: dict, continued_from: int | None = None):
     c.drawRightString(W - 50, y, title)
     c.setFont("Helvetica", 10)
     y -= 34
-    label = "Credit Note No" if lay == "credit_note" else ("Receipt No" if lay == "receipt" else "Invoice No")
+    label = inv.get("number_label") or (
+        "Credit Note No" if lay == "credit_note" else ("Receipt No" if lay == "receipt" else "Invoice No"))
     if "invoice_number" not in hide:
         c.drawString(50, y, f"{label}: {inv['invoice_number']}")
     c.drawRightString(W - 50, y, f"Date: {fmt_date(inv['invoice_date'], lay, ccy)}")
@@ -189,6 +190,8 @@ def draw(c: canvas.Canvas, inv: dict, continued_from: int | None = None):
         c.setFont("Helvetica", 10)
         c.drawRightString(W - 50, 40, f"Page {page} of {page}")
     c.setFont("Helvetica", 8)
+    if inv.get("iban"):
+        c.drawString(50, 74, f"Pay to IBAN: {inv['iban']}")
     c.drawString(50, 60, "Thank you for your business. Payment within 30 days.")
     c.showPage()
 
@@ -239,3 +242,11 @@ if __name__ == "__main__":
     ap.add_argument("--out", default="eval/generated/pdf")
     a = ap.parse_args()
     print(len(build(a.n, Path(a.out))), "files")
+
+
+def iban(rng: random.Random) -> str:
+    """A UK IBAN with correct check digits, printed in groups of four."""
+    bban = "NWBK" + "".join(str(rng.randint(0, 9)) for _ in range(14))
+    digits = "".join(str(int(ch, 36)) for ch in bban + "GB00")
+    raw = f"GB{98 - int(digits) % 97:02d}{bban}"
+    return " ".join(raw[i:i + 4] for i in range(0, len(raw), 4))

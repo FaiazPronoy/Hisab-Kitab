@@ -21,6 +21,8 @@ def _setup_db():
     os.environ["DATABASE_URL"] = eval_url
     os.environ["CELERY_EAGER"] = "true"
     os.environ["UPLOAD_RATE_LIMIT"] = "100000/minute"
+    # the runner plays the reviewer through the API key, without a session
+    os.environ["REQUIRE_LOGIN"] = "false"
     from sqlalchemy import create_engine, text
     admin = create_engine(base, isolation_level="AUTOCOMMIT")
     with admin.connect() as c:
@@ -122,9 +124,11 @@ def run(n: int, seed: int, include_scans: bool):
     for k in ("calls", "tokens", "cost_usd"):
         metrics["llm"][k] += phase2["llm"][k]
 
-    from eval import ocr_bench, report, scorer
+    from eval import learning, ocr_bench, report, scorer
+    learned = learning.run(client, h, GEN, seed)
     bench = ocr_bench.run(data["scans"], GEN) if include_scans else {}
     scores = scorer.score(results, recon, led, metrics)
+    scores["learning"] = learned
     scores["ocr_engines"] = bench
     scores["config"] = {"llm_provider": s.llm_provider, "llm_model": s.llm_model if s.llm_provider != "mock" else "mock (rule parser)",
                         "n_generated": n, "seed": seed}

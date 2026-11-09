@@ -168,6 +168,28 @@ def write(s: dict, path: Path):
             except Exception:
                 pass
 
+    if s.get("learning"):
+        lr = s["learning"]
+        n_sup, each = lr["suppliers"], lr["invoices_each"]
+        rows = [[k + 1, f"{lr['off']['by_position'][k]['right_first_time']} of {lr['off']['by_position'][k]['n']}",
+                 f"{lr['on']['by_position'][k]['right_first_time']} of {lr['on']['by_position'][k]['n']}"] for k in range(each)]
+        b = lr["on"]["bank"]
+        lines += [
+            "## Supplier memory and supplier history",
+            "",
+            f"{n_sup} suppliers send {each} invoices each, every supplier printing its invoice number after its own label "
+            f"({', '.join(lr['labels'])}). A simulated reviewer fixes a wrong number and approves each invoice. "
+            "The same stream runs with supplier memory off and on.",
+            "",
+            _t(["Invoice from the supplier", "Number right first time, memory off", "Memory on"], rows),
+            "",
+            f"Numbers the reviewer had to fix: {lr['off']['corrections']} with memory off, {lr['on']['corrections']} with it on. "
+            f"Invoices sent to review: {lr['off']['reviews']} and {lr['on']['reviews']}.",
+            "",
+            f"Changed bank details: {b['caught']} of {b['planted']} planted IBAN changes stopped by BANK_CHANGED; "
+            f"{b['false_alarms']} false alarms on {b['genuine_with_history']} genuine invoices that had history.",
+            "",
+        ]
     lines += [
         "## Reliability, speed and cost",
         "",
