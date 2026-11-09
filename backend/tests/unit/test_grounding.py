@@ -1,8 +1,8 @@
 import pytest
 
-from app.pipeline.extract.grounding import number_on_page, quote_score, value_in_quote
+from app.pipeline.extract.grounding import ground, number_on_page, quote_score, value_in_quote
 from app.pipeline.extract.run import dedupe_line_items, normalize
-from app.pipeline.extract.schema import InvoiceOut, LineItemOut
+from app.pipeline.extract.schema import Field_, InvoiceOut, LineItemOut
 from app.pipeline.validate.routing import route
 from app.pipeline.validate.rules import check
 
@@ -198,3 +198,20 @@ def test_line_item_deduplication_via_run_dedupe():
     assert len(deduped) == 2
     assert deduped[0].line_id == "P1:L10"
     assert deduped[1].line_id == "P1:L11"
+
+
+@pytest.mark.parametrize("printed", ["16.01.2026", "16/01/2026", "01/16/2026", "16 Jan 2026", "2026-01-16"])
+def test_dates_in_every_printed_format_are_grounded(printed):
+    page = f"ACME GmbH\nDate: {printed}\nTotal 10,00"
+    lines = [{"id": "P1:L2", "text": f"Date: {printed}", "conf": 1.0, "bbox": [0, 0, 1, 1]}]
+    r = ground("invoice_date", Field_(value=printed, quote=f"Date: {printed}", line_id="P1:L2", confidence=0.9),
+               page, lines, "date", 0.9)
+    assert r["verified"], printed
+
+
+def test_a_date_not_on_the_page_is_removed():
+    page = "Date: 16.01.2026"
+    lines = [{"id": "P1:L1", "text": page, "conf": 1.0, "bbox": [0, 0, 1, 1]}]
+    r = ground("invoice_date", Field_(value="17.01.2026", quote="Date: 17.01.2026", line_id="P1:L1", confidence=0.9),
+               page, lines, "date", 0.9)
+    assert not r["verified"] and r["null_reason"] == "unverified"

@@ -213,6 +213,16 @@ def number_on_page(value: str, page_text: str, style: str = "us") -> bool:
     return False
 
 
+def date_on_page(value: str, page_text: str) -> bool:
+    """The date must be printed on one line. Dates are not amounts: 16.01.2026
+    read as a number would never match."""
+    from app.pipeline.extract.normalize import parse_date
+    val_date, _ = parse_date(value)
+    if not val_date:
+        return False
+    return any(val_date in _extract_candidate_dates(line) for line in (page_text or "").splitlines())
+
+
 def find_line(lines: list[dict], quote: str, line_id: str | None) -> dict | None:
     by_id = {ln["id"]: ln for ln in lines}
     if line_id and line_id in by_id and fuzz.partial_ratio(_ws(quote), _ws(by_id[line_id]["text"])) >= 80:
@@ -234,10 +244,12 @@ def ground(field: str, out, page_text: str, lines: list[dict], kind: str, min_sc
         return rec
     score = quote_score(out.quote or out.value, page_text)
     ok = score >= min_score and value_in_quote(field, out.value, out.quote or out.value, kind, style=style)
-    if ok and kind in ("amount", "date"):
-        # fuzzy quote matching would accept 1,350.00 against a printed 1,250.00,
-        # so numbers must appear on the page exactly
+    # fuzzy quote matching would accept 1,350.00 against a printed 1,250.00,
+    # so amounts and dates must appear on the page exactly
+    if ok and kind == "amount":
         ok = number_on_page(out.value, page_text, style=style)
+    elif ok and kind == "date":
+        ok = date_on_page(out.value, page_text)
     if not ok:
         rec.update(value_raw=None, null_reason="unverified", rejected_value=out.value, quote_score=round(score, 3))
         return rec
