@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     llm_budget_usd: float = 2.0
     llm_max_concurrency: int = 4
     llm_rate_per_minute: int = 15
+    # a 30-line invoice with a quote per value needs more than 4096 tokens of JSON
+    llm_max_output_tokens: int = 16384
 
     max_upload_mb: int = 60
     upload_rate_limit: str = "30/minute"

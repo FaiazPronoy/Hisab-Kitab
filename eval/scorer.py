@@ -196,7 +196,7 @@ def score(results: list[dict], recon: dict, ledger: dict, metrics: dict) -> dict
                 cat = "gemini 503 (unavailable)"
             elif "safety" in lmsg:
                 cat = "safety block"
-            elif "max_tokens" in lmsg:
+            elif "max_tokens" in lmsg or "max tokens" in lmsg:
                 cat = "max tokens"
             elif "timeout" in lmsg:
                 cat = "timeout"

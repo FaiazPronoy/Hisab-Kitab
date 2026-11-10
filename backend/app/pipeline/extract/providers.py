@@ -82,7 +82,7 @@ class GeminiProvider(Provider):
         cfg = types.GenerateContentConfig(
             system_instruction=system or None, temperature=0,
             response_mime_type="application/json", response_schema=schema,
-            max_output_tokens=4096,
+            max_output_tokens=get_settings().llm_max_output_tokens,
         )
         try:
             r = self.client.models.generate_content(model=model, contents=parts, config=cfg)
