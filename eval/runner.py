@@ -124,11 +124,13 @@ def run(n: int, seed: int, include_scans: bool):
     for k in ("calls", "tokens", "cost_usd"):
         metrics["llm"][k] += phase2["llm"][k]
 
-    from eval import learning, ocr_bench, report, scorer
+    from eval import learning, ocr_bench, report, scorer, sroie
     learned = learning.run(client, h, GEN, seed)
+    receipts = sroie.run(client, h, GEN)
     bench = ocr_bench.run(data["scans"], GEN) if include_scans else {}
     scores = scorer.score(results, recon, led, metrics)
     scores["learning"] = learned
+    scores["sroie"] = receipts
     scores["ocr_engines"] = bench
     scores["config"] = {"llm_provider": s.llm_provider, "llm_model": s.llm_model if s.llm_provider != "mock" else "mock (rule parser)",
                         "n_generated": n, "seed": seed}

@@ -168,6 +168,21 @@ def write(s: dict, path: Path):
             except Exception:
                 pass
 
+    if s.get("sroie") and s["sroie"].get("n"):
+        sr = s["sroie"]
+        rows = [[f, f"{v['right']} of {v['n']}", f"{v['right'] / v['n']:.2f}" if v["n"] else "-"] for f, v in sr["fields"].items()]
+        lines += [
+            "## Real receipts (ICDAR 2019 SROIE)",
+            "",
+            f"{sr['n']} scanned receipts from the public SROIE benchmark (every 16th image of its labelled set), "
+            "downloaded at run time and not stored in the repo. Exact match after normalising: company letters and digits, "
+            "the date as a calendar date, the total as a number.",
+            "",
+            _t(["Field", "Right", "Accuracy"], rows),
+            "",
+            f"All three right on {sr['all_three_right']} of {sr['n']} receipts; {sr['processed']} produced a record.",
+            "",
+        ]
     if s.get("learning"):
         lr = s["learning"]
         n_sup, each = lr["suppliers"], lr["invoices_each"]
