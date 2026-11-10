@@ -110,4 +110,8 @@ Approved invoices are paid through an ISO 20022 `pain.001.001.09` file, the form
 
 ## 23. Spreadsheets have a role
 
-A payment ledger and a list of invoices look alike but mean different things: ledger rows are payment records to reconcile against, invoice-list rows are invoices to check. The role is guessed from sheet names and headers ("Payments", "Paid", "Remittance") and can be set on upload or changed later. Ledger rows are never reviewed, approved or counted as duplicates.
+A payment ledger and a list of invoices look alike but mean different things: ledger rows are payment records to reconcile against, invoice-list rows are invoices to check. The role is guessed from sheet names and headers ("Payments", "Paid", "Remittance") and can be set on upload or changed later. Ledger rows are never reviewed, approved or counted as duplicates. A third role, purchase orders, is guessed from a PO column with no invoice column.
+
+## 24. Two-way purchase order matching
+
+An invoice that cites a PO is checked against the uploaded purchase orders: the PO must exist, be for the same supplier and currency, and the invoices citing it must not add up to more than its amount. When no purchase orders have been uploaded at all, nothing is flagged, so the check never punishes a team that does not use POs. Purchase orders that arrive after their invoices trigger a re-check of those invoices. Goods receipts are left out: matching received quantities would need a receiving process this project does not have, so the README calls this two-way matching, not three-way.

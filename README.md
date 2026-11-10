@@ -7,10 +7,9 @@ Every extracted value points to the line it came from on the page. If the system
 
 | | |
 |---|---|
-| **Type** | Take-home project, built solo in five days |
+| **Type** | Take-home project, solo |
 | **Made by** | Faiaz Abrar Zaman Pronoy |
-| **Built with** | Python, FastAPI, Celery, PostgreSQL with pgvector, Next.js |
-| **Built in** | November 2026 |
+| **History** | Built in November 2026: the pipeline in five days, then reviewer roles, supplier memory and payments |
 | **Docs** | [Architecture](docs/architecture.md), [Database schema](docs/schema.md), [API](docs/api.md), [Design decisions](DECISIONS.md), [Evaluation](EVALUATION.md), [Prompts](PROMPTS.md) |
 
 | | |
@@ -34,7 +33,7 @@ Every extracted value points to the line it came from on the page. If the system
 - The model must quote the line each value came from; code checks that the quote and the number are really on the page
 - Several invoices in one PDF are split into separate records
 - Spreadsheets: ledger-style sheets are mapped once and every row is parsed in code, so a long sheet never goes to the LLM row by row
-- A spreadsheet is either a list of invoices or a payment ledger, guessed from its headers or chosen on upload; ledger rows are only used for reconciliation
+- A spreadsheet is a list of invoices, a payment ledger or a list of purchase orders, guessed from its headers or chosen on upload; ledger and PO rows are reference data, never reviewed
 - IBANs (with their check digits) and labelled account numbers are read from the page, with the line they came from
 
 **Checking the data**
@@ -42,6 +41,7 @@ Every extracted value points to the line it came from on the page. If the system
 - Missing fields, odd dates, unclear currency and low confidence are flagged
 - Four kinds of duplicate: same file, same invoice, same number with a different total, and near-duplicates such as `INV-1O8` for `INV-108`
 - Invoices are matched against an uploaded ledger, and two copies of an invoice can be compared line by line
+- Invoices are matched to uploaded purchase orders: the PO must exist, belong to the same supplier and currency, and not be billed beyond its amount across all its invoices
 - Each supplier's approved history is a check of its own: changed bank details stop the invoice, and an amount far above the supplier's usual, a new currency or a first invoice are flagged
 
 **Reviewing**
@@ -156,15 +156,33 @@ Large files, one worker with two processes:
 | BANK_CHANGED | the IBAN or account differs from the supplier's approved invoices | |
 | AMOUNT_OUTLIER, CURRENCY_CHANGED | over 3 times the supplier's median total; a currency the supplier never used | 3 earlier invoices |
 | NEW_SUPPLIER | first invoice from a supplier, shown for information | |
+| PO_UNKNOWN, PO_SUPPLIER, PO_CURRENCY | the cited purchase order is missing, for another supplier or in another currency | supplier similarity 85 |
+| PO_OVER | all invoices citing a purchase order add up to more than it allows | 0.05 |
 | SUSPICIOUS_CONTENT | instructions written inside the document | |
 
 An invoice goes to review on any error, more than one warning, a missing or removed key field, a failed page, a duplicate or suspicious text.
 
 ---
 
+## Demo logins
+
+The sign in page has a one-tap button for each person.
+
+| Role | Username | Password |
+|---|---|---|
+| Clerk | `nadia` | `demo-clerk` |
+| Approver | `farhan` | `demo-approver` |
+
+A clerk corrects invoices and approves those under 10,000. Larger invoices and changed bank details need the approver.
+
+---
+
 ## Run it
 
-Needs Docker Desktop (WSL 2 on Windows) and about 6 GB of disk.
+You need **Docker Desktop** (with WSL 2 on Windows), about 6 GB of disk and 4 GB of memory for Docker.
+
+- **Windows:** double-click `RUN-DocIntel.bat`. It starts Docker if needed, writes `.env`, builds and starts the containers, loads the demo data and opens the app. The first run takes about 10 minutes.
+- **By hand:**
 
 ```bash
 cp .env.example .env
@@ -172,15 +190,13 @@ docker compose up -d --build
 make seed
 ```
 
-- Web app: http://localhost:3000, sign in as `nadia` / `demo-clerk` (clerk) or `farhan` / `demo-approver` (approver)
-- API docs: http://localhost:8000/docs (key `local-dev-key` in the `X-API-Key` header)
-- Other reviewers: `docker compose run --rm api python -m scripts.create_user <username> "<name>" clerk|approver <password>`
+Open <http://localhost:3000>. API docs are at <http://localhost:8000/docs> (key `local-dev-key` in the `X-API-Key` header). Stop everything with `docker compose down`.
 
-On Windows without `make`, run the command after the colon in the Makefile, for example `docker compose run --rm api python -m scripts.seed_demo`.
+On Windows without `make`, run the command after the colon in the Makefile, for example `docker compose exec api python -m scripts.seed_demo`. More reviewers: `docker compose exec api python -m scripts.create_user <username> "<name>" clerk|approver <password>`.
 
 | Command | What it does |
 |---|---|
-| `make seed` | creates the two demo reviewers and uploads a demo batch: clean PDF, rotated scan, broken PDF, three invoices in one PDF, a wrong total, a ledger, a CSV and an invoice with new bank details |
+| `make seed` | creates the two demo reviewers and uploads a demo batch: clean PDF, rotated scan, broken PDF, three invoices in one PDF, a wrong total, a ledger, purchase orders, a CSV and an invoice with new bank details |
 | `make test` | unit and integration tests |
 | `make eval` | builds the dataset, runs it through the API and writes EVALUATION.md |
 | `make bigpdf` | builds a 1,000-page digital PDF and a 100-page scan |
@@ -210,9 +226,9 @@ Copy `.env.example` to `.env`. The `.env` file is never committed.
 
 ## Tests
 
-- `make test` runs **200 tests** against a real PostgreSQL, with Celery tasks run inline
+- `make test` runs **201 tests** against a real PostgreSQL, with Celery tasks run inline
 - They cover file checks, OCR fallbacks, spreadsheet parsing, extraction and grounding, every validation rule at its tolerance, duplicates, reconciliation, the API, corrections and audit, reprocessing failed pages, recovery of stuck jobs and broken LLM answers
-- And the review side: sign-in and roles, the approval limit and four-eyes rule, supplier memory, changed bank details, ledger and invoice-list sheets, and payment files checked against the pain.001 structure
+- And the review side: sign-in and roles, the approval limit and four-eyes rule, supplier memory, changed bank details, ledger and invoice-list sheets, purchase order matching, and payment files checked against the pain.001 structure
 - GitHub Actions runs the tests, ruff and the web build on every push
 
 ---
@@ -241,6 +257,7 @@ scripts/             demo seed, reviewer accounts, large-file benchmark
 - The main test set is generated, so real supplier invoices will be messier.
 - Values read from a page image by the vision fallback have no box to highlight.
 - Invoices longer than 10 pages take their header fields from the first and last two pages.
+- Purchase order matching is two-way (invoice against PO). Goods receipts are not modelled, so it is not a full three-way match.
 - PyMuPDF is AGPL-3.0. A closed deployment would need its commercial licence or a switch to `pypdfium2`, which `pipeline/pdf.py` keeps in one place.
 - AI tools were used during development; see [AI_DISCLOSURE.md](AI_DISCLOSURE.md).
 

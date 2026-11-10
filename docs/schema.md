@@ -20,7 +20,7 @@ erDiagram
     text sha256 UK
     text filename
     text kind "pdf, image, sheet"
-    text role "sheets: invoices or ledger"
+    text role "sheets: invoices, ledger or purchase_orders"
     text status
     int page_count
     int pages_done
