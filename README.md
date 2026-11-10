@@ -1,8 +1,8 @@
-# Document Intelligence System
+# Hisab Kitab
 
 [![CI](https://github.com/FaiazPronoy/document-intelligence-system/actions/workflows/ci.yml/badge.svg)](https://github.com/FaiazPronoy/document-intelligence-system/actions/workflows/ci.yml)
 
-**Reads invoices, receipts, scans and spreadsheets, pulls out the invoice data, checks it and sends anything doubtful to a reviewer.**
+**A document intelligence system for accounts payable: it reads invoices, receipts, scans and spreadsheets, checks them, sends anything doubtful to a reviewer and pays what is approved.**
 Every extracted value points to the line it came from on the page. If the system cannot find a value in the document, it does not keep it.
 
 | | |
@@ -183,7 +183,7 @@ A clerk corrects invoices and approves those under 10,000. Larger invoices and c
 
 You need **Docker Desktop** (with WSL 2 on Windows), about 6 GB of disk and 4 GB of memory for Docker.
 
-- **Windows:** double-click `RUN-DocIntel.bat`. It starts Docker if needed, writes `.env`, builds and starts the containers, loads the demo data and opens the app. The first run takes about 10 minutes.
+- **Windows:** double-click `RUN-HisabKitab.bat`. It starts Docker if needed, writes `.env`, builds and starts the containers, loads the demo data and opens the app. The first run takes about 10 minutes.
 - **By hand:**
 
 ```bash

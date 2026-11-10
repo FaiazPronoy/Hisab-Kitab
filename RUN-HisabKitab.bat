@@ -1,10 +1,10 @@
 @echo off
 setlocal
-title Document Intelligence
+title Hisab Kitab
 cd /d "%~dp0"
 
 echo ==========================================
-echo   DOCUMENT INTELLIGENCE
+echo   HISAB KITAB
 echo ==========================================
 echo.
 

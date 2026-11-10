@@ -8,8 +8,8 @@ const sans = IBM_Plex_Sans({ subsets: ["latin"], weight: ["400", "500", "600"], 
 const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-plex-mono", display: "swap" });
 
 export const metadata = {
-  title: { default: "Document Intelligence", template: "%s | Document Intelligence" },
-  description: "Invoice extraction, validation and review",
+  title: { default: "Hisab Kitab", template: "%s | Hisab Kitab" },
+  description: "Document intelligence for accounts payable: invoices read, checked, reviewed and paid",
 };
 
 export const viewport = { themeColor: "#10233f" };

@@ -16,7 +16,7 @@ from app.db.session import engine
 setup_logging()
 s = get_settings()
 
-app = FastAPI(title="Document Intelligence System", version="1.0.0", docs_url="/docs")
+app = FastAPI(title="Hisab Kitab", version="1.0.0", docs_url="/docs")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)

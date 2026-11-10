@@ -41,7 +41,7 @@ function Brand({ dark = true }: { dark?: boolean }) {
     <Link href="/" className="flex items-center gap-2.5 rounded-md">
       <Mark />
       <span className="leading-tight">
-        <span className={clsx("block text-sm font-semibold", dark ? "text-white" : "text-ink")}>Document Intelligence</span>
+        <span className={clsx("block text-sm font-semibold", dark ? "text-white" : "text-ink")}>Hisab Kitab</span>
         <span className={clsx("block text-xs", dark ? "text-[#9fb2cf]" : "text-muted")}>Accounts payable</span>
       </span>
     </Link>

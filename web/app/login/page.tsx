@@ -35,7 +35,7 @@ function Form() {
   return (
     <div className="grid min-h-screen lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
       <section className="hidden flex-col justify-between bg-navy p-10 text-white lg:flex">
-        <div className="flex items-center gap-3"><Mark size={34} /><span className="text-lg font-semibold">Document Intelligence</span></div>
+        <div className="flex items-center gap-3"><Mark size={34} /><span className="text-lg font-semibold">Hisab Kitab</span></div>
         <div className="max-w-md">
           <h2 className="text-[28px] leading-9 font-semibold tracking-[-0.01em]">Every value on an invoice, with the line it came from.</h2>
           <ul className="mt-6 space-y-3 text-[15px] text-[#c3cfe2]">
@@ -48,7 +48,7 @@ function Form() {
       </section>
       <section className="flex items-center justify-center bg-ground px-4 py-12">
         <div className="w-full max-w-sm">
-          <div className="mb-8 flex items-center gap-3 lg:hidden"><Mark size={32} /><span className="font-semibold">Document Intelligence</span></div>
+          <div className="mb-8 flex items-center gap-3 lg:hidden"><Mark size={32} /><span className="font-semibold">Hisab Kitab</span></div>
           <h1 className="text-2xl font-semibold tracking-[-0.01em]">Sign in</h1>
           <p className="mt-1 text-sm text-muted">Corrections and approvals are recorded under your name.</p>
           <form onSubmit={go} className="mt-6 space-y-4">
