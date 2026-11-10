@@ -8,7 +8,7 @@ down:
 	$(DC) down
 
 seed:
-	$(RUN) python -m scripts.seed_demo
+	$(DC) exec api python -m scripts.seed_demo
 
 test:
 	$(RUN) pytest -q --junitxml=test-results/junit.xml --cov=app --cov-report=term --cov-report=xml:test-results/coverage.xml

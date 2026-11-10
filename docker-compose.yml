@@ -59,7 +59,7 @@ services:
     <<: *backend
     pull_policy: never
     mem_limit: 2g
-    command: celery -A app.workers.celery_app worker -Q ingest,ocr,extract,index --concurrency=2 --loglevel=INFO
+    command: celery -A app.workers.celery_app worker -Q ingest,ocr,extract,index --concurrency=${WORKER_CONCURRENCY:-2} --loglevel=INFO
     depends_on:
       api:
         condition: service_healthy
