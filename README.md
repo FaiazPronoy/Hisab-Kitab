@@ -1,6 +1,6 @@
 # Hisab Kitab
 
-[![CI](https://github.com/FaiazPronoy/document-intelligence-system/actions/workflows/ci.yml/badge.svg)](https://github.com/FaiazPronoy/document-intelligence-system/actions/workflows/ci.yml)
+[![CI](https://github.com/FaiazPronoy/hisab-kitab/actions/workflows/ci.yml/badge.svg)](https://github.com/FaiazPronoy/hisab-kitab/actions/workflows/ci.yml)
 
 **A document intelligence system for accounts payable: it reads invoices, receipts, scans and spreadsheets, checks them, sends anything doubtful to a reviewer and pays what is approved.**
 Every extracted value points to the line it came from on the page. If the system cannot find a value in the document, it does not keep it.
