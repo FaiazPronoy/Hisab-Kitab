@@ -5,7 +5,7 @@ import { ChevronLeft } from "lucide-react";
 import Link from "next/link";
 import { use, useState } from "react";
 import { api, type Doc } from "@/lib/api";
-import { Chip, Empty, ErrorNote, Loading, PageTitle, Panel } from "@/components/ui";
+import { Chip, Empty, ErrorNote, Loading, PageTitle, Panel, Spinner } from "@/components/ui";
 
 const READ_BY: Record<string, string> = { text_layer: "text layer", ocr: "OCR", ocr_heavy: "OCR, heavy", vision: "vision model" };
 
@@ -45,13 +45,16 @@ export default function DocumentDetail({ params }: { params: Promise<{ id: strin
         sub={<>{d.kind}, <span className="num">{d.page_count}</span> {unit}{d.pages_failed ? <>, <span className="num">{d.pages_failed}</span> failed</> : null}. Uploaded {new Date(d.created_at).toLocaleString()}.</>}
         right={<>
           {d.kind === "sheet" && d.role && (
-            <span className="flex items-center gap-2 text-sm text-muted">
-              {d.role === "ledger" ? "Payment ledger" : "Invoice list"}
-              <button type="button" disabled={roleBusy} onClick={() => switchRole(d.role === "ledger" ? "invoices" : "ledger")}
-                className="rounded-md border border-control px-2.5 py-1 text-xs font-medium text-ink hover:bg-paper disabled:opacity-50">
-                {roleBusy ? "Saving…" : d.role === "ledger" ? "Treat as invoices" : "Treat as ledger"}
-              </button>
-            </span>
+            <label className="flex items-center gap-2 text-sm text-muted">
+              This sheet is
+              <select value={d.role} disabled={roleBusy} onChange={(e) => switchRole(e.target.value)}
+                className="h-8 rounded-md border border-control bg-surface px-2 text-sm text-ink disabled:opacity-50">
+                <option value="invoices">a list of invoices</option>
+                <option value="ledger">a payment ledger</option>
+                <option value="purchase_orders">purchase orders</option>
+              </select>
+              {roleBusy && <Spinner />}
+            </label>
           )}
           <Chip value={d.status} />
         </>} />

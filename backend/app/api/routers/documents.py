@@ -119,8 +119,8 @@ async def upload(request: Request, files: list[UploadFile] = File(...), role: st
     s = get_settings()
     if role in ("", "auto"):
         role = None
-    if role not in (None, "invoices", "ledger"):
-        raise HTTPException(422, "role must be invoices, ledger or auto.")
+    if role not in (None, *ROLES):
+        raise HTTPException(422, "role must be invoices, ledger, purchase_orders or auto.")
     rc = None
     idemp_redis_key = None
     if idempotency_key:
@@ -238,6 +238,9 @@ def get_document(document_id: uuid.UUID, detail: bool = True, db: Session = Depe
     return doc_out(_doc(db, document_id), detail=detail)
 
 
+ROLES = ("invoices", "ledger", "purchase_orders")
+
+
 class RoleIn(BaseModel):
     role: str
 
@@ -248,10 +251,10 @@ def set_role(document_id: uuid.UUID, body: RoleIn, db: Session = Depends(get_db)
     d = _doc(db, document_id)
     if d.kind != "sheet":
         raise HTTPException(422, "Only spreadsheets have a role.")
-    if body.role not in ("invoices", "ledger"):
-        raise HTTPException(422, "role must be invoices or ledger.")
-    if any(i.status == "approved" or i.payment_batch_id for i in d.invoices) and body.role == "ledger":
-        raise HTTPException(409, "Some rows are already approved; they cannot become ledger records.")
+    if body.role not in ROLES:
+        raise HTTPException(422, "role must be invoices, ledger or purchase_orders.")
+    if any(i.status == "approved" or i.payment_batch_id for i in d.invoices) and body.role != "invoices":
+        raise HTTPException(409, "Some rows are already approved; they have to stay invoices.")
     if d.role != body.role:
         d.role = body.role
         if body.role == "invoices":

@@ -18,7 +18,7 @@ def history(db, inv: Invoice) -> list[Invoice]:
     if not inv.supplier_norm:
         return []
     q = (select(Invoice).join(Document).where(Invoice.supplier_norm == inv.supplier_norm, Invoice.id != inv.id,
-                                              Invoice.status.in_(TRUSTED), Document.role.is_distinct_from("ledger"))
+                                              Invoice.status.in_(TRUSTED), (Document.role.is_(None) | (Document.role == "invoices")))
          .order_by(Invoice.created_at))
     return list(db.scalars(q))
 

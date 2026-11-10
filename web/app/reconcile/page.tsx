@@ -40,7 +40,7 @@ export default function Reconcile() {
         <label htmlFor="ledger" className="pl-1 text-sm text-muted">Ledger</label>
         <select id="ledger" value={ledger} onChange={(e) => setLedger(e.target.value)} className={`${inputCls} min-w-0 flex-1 sm:max-w-sm`} disabled={sheets.isLoading}>
           <option value="">{sheets.isLoading ? "Loading spreadsheets…" : options.length ? "Choose a ledger spreadsheet" : "No spreadsheets uploaded"}</option>
-          {options.map((d) => <option key={d.id} value={d.id}>{d.filename}{d.role === "ledger" ? " (payment ledger)" : d.role === "invoices" ? " (invoice list)" : ""}</option>)}
+          {options.map((d) => <option key={d.id} value={d.id}>{d.filename}{d.role === "ledger" ? " (payment ledger)" : d.role === "invoices" ? " (invoice list)" : d.role === "purchase_orders" ? " (purchase orders)" : ""}</option>)}
         </select>
         <Button onClick={go} disabled={!ledger || busy} className="max-sm:w-full">{busy && <Spinner />} {busy ? "Matching…" : "Run reconciliation"}</Button>
       </Card>

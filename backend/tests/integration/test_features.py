@@ -246,3 +246,34 @@ def test_iban_check_rejects_punctuation_and_bad_digits():
     assert not iban_ok("GB33-BUKB-2020-1555-5555-55")
     assert not iban_ok("GB34BUKB20201555555555")
     assert not iban_ok("123456789012345678")
+
+
+def test_invoices_are_matched_to_purchase_orders(client, H, tmp_path):
+    ccy = "GBP"
+    p, fits = pdf(tmp_path, 100, supplier_name="Order Match Ltd", po_number="PO-7001", currency=ccy)
+    early = invoice(client, H, up(client, H, p)["document_id"])
+    assert not {x["rule_code"] for x in early["findings_list"]} & {"PO_UNKNOWN", "PO_OVER"}
+    rows = [["PO-7001", "Order Match Ltd", float(fits["total"]), ccy],
+            ["PO-7002", "Order Match Ltd", 10.0, ccy]]
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Purchase orders"
+    ws.append(["PO Number", "Supplier", "Amount", "Currency"])
+    for r in rows:
+        ws.append(r)
+    path = tmp_path / "pos.xlsx"
+    wb.save(path)
+    d = client.get(f"/api/v1/documents/{up(client, H, path)['document_id']}", headers=H).json()
+    assert d["role"] == "purchase_orders" and {i["status"] for i in d["invoices"]} == {"po"}
+
+    p2, _ = pdf(tmp_path, 101, supplier_name="Order Match Ltd", po_number="PO-7002", currency=ccy)
+    over = invoice(client, H, up(client, H, p2)["document_id"])
+    f = next(x for x in over["findings_list"] if x["rule_code"] == "PO_OVER")
+    assert f["severity"] == "error" and over["status"] == "needs_review"
+    p3, _ = pdf(tmp_path, 102, supplier_name="Order Match Ltd", po_number="PO-9999")
+    unknown = invoice(client, H, up(client, H, p3)["document_id"])
+    assert "PO_UNKNOWN" in {x["rule_code"] for x in unknown["findings_list"]}
+    # a second invoice on the first PO now bills it twice
+    p4, _ = pdf(tmp_path, 103, supplier_name="Order Match Ltd", po_number="PO-7001", currency=ccy)
+    twice = invoice(client, H, up(client, H, p4)["document_id"])
+    assert "PO_OVER" in {x["rule_code"] for x in twice["findings_list"]}

@@ -167,6 +167,7 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
           {inv.payment_batch_id && <p className="mb-3 rounded-md border border-line bg-infowash px-3 py-2 text-sm text-ink2">This invoice is in a payment file and can no longer be changed.</p>}
           {inv.approved_by && inv.status === "approved" && <p className="mb-3 rounded-md border border-line bg-goodwash px-3 py-2 text-sm text-good">Approved by {inv.approved_by}{inv.approved_at ? `, ${new Date(inv.approved_at).toLocaleString()}` : ""}.</p>}
           {inv.document_role === "ledger" && <p className="mb-3 rounded-md border border-line bg-plainwash px-3 py-2 text-sm text-ink2">A row of a payment ledger. It is used for reconciliation and is never approved.</p>}
+          {inv.document_role === "purchase_orders" && <p className="mb-3 rounded-md border border-line bg-plainwash px-3 py-2 text-sm text-ink2">A purchase order. Invoices that cite it are checked against its supplier and amount.</p>}
           {inv.flags?.includes("memory_used") && <p className="mb-3 rounded-md border border-line bg-infowash px-3 py-2 text-sm text-ink2">Some values were found with labels learned from earlier corrections for this supplier. They are marked &ldquo;learned&rdquo;.</p>}
           {inv.flags?.includes("vision_used") && <p className="mb-3 rounded-md border border-warnline bg-warnwash px-3 py-2 text-sm text-accent-ink">Some values were read from the page image. They have no box to highlight.</p>}
 

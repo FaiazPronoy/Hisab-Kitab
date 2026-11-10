@@ -50,7 +50,7 @@ export default function Metrics() {
         { label: "Processed cleanly", value: pct(m.success_rate), note: "done or sent to review" },
         { label: "Failed", value: pct(m.failure_rate), note: `${docs.failed || 0} failed, ${docs.completed_with_errors || 0} partly read` },
         { label: "Waiting for review", value: m.needs_review, note: "invoices" },
-        { label: "Approved, not paid", value: m.approved_unpaid ?? 0, note: m.ledger_rows ? `${m.ledger_rows} ledger rows kept apart` : "invoices" },
+        { label: "Approved, not paid", value: m.approved_unpaid ?? 0, note: m.ledger_rows || m.po_rows ? `${m.ledger_rows || 0} ledger rows, ${m.po_rows || 0} purchase orders kept apart` : "invoices" },
         { label: "LLM cost", value: `$${Number(m.llm.cost_usd).toFixed(2)}`, note: `${m.llm.calls} calls, ${Number(m.llm.tokens).toLocaleString()} tokens` },
       ]} />
 

@@ -212,6 +212,7 @@ export default function UploadPage() {
                     <option value="auto">detected from their headers</option>
                     <option value="invoices">lists of invoices to check</option>
                     <option value="ledger">payment ledgers to reconcile</option>
+                    <option value="purchase_orders">purchase orders to match against</option>
                   </select>
                 </label>
               </div>

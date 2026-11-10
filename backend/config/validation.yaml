@@ -53,3 +53,8 @@ optional_fields: [customer_name, subtotal, tax]
 risk:
   min_history: 3
   amount_factor: 3
+
+# purchase order matching (app/pipeline/validate/po.py)
+po:
+  supplier_min: 85
+  over_abs: 0.05

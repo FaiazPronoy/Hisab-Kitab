@@ -141,6 +141,9 @@ def draw(c: canvas.Canvas, inv: dict, continued_from: int | None = None):
     elif lay in ("classic", "wholesale") and ccy != "USD":
         y -= 14
         c.drawString(50, y, f"Currency: {ccy}")
+    if inv.get("po_number"):
+        y -= 14
+        c.drawString(50, y, f"PO Number: {inv['po_number']}")
     y -= 30
     cols = [50, 320, 390, 480] if lay != "wholesale" else [50, 300, 370, 470]
     heads = ["Description", "Qty", "Unit Price", "Amount"]

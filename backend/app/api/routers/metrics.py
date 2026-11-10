@@ -13,6 +13,7 @@ def summary(db: Session = Depends(get_db)):
     docs = dict(db.execute(select(Document.status, func.count()).group_by(Document.status)).all())
     invs = dict(db.execute(select(Invoice.status, func.count()).group_by(Invoice.status)).all())
     ledger_rows = invs.pop("ledger", 0)
+    po_rows = invs.pop("po", 0)
     # Exclude in-flight documents from terminal success/failure rates
     in_flight = docs.get("queued", 0) + docs.get("processing", 0) + docs.get("finalizing", 0)
     terminal_total = sum(docs.values()) - in_flight
@@ -30,7 +31,7 @@ def summary(db: Session = Depends(get_db)):
         "documents": docs, "invoices": invs,
         "success_rate": round(ok / denom, 4), "failure_rate": round(docs.get("failed", 0) / denom, 4),
         "completed_with_errors_rate": round(docs.get("completed_with_errors", 0) / denom, 4),
-        "needs_review": invs.get("needs_review", 0), "ledger_rows": ledger_rows,
+        "needs_review": invs.get("needs_review", 0), "ledger_rows": ledger_rows, "po_rows": po_rows,
         "approved_unpaid": db.scalar(select(func.count()).select_from(Invoice).where(
             Invoice.status == "approved", Invoice.payment_batch_id.is_(None))),
         "page_timing_ms": {r.source: {"n": r.n, "p50": r.p50, "p95": r.p95} for r in page},

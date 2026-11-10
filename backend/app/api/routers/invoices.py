@@ -248,8 +248,8 @@ def approve(invoice_id: uuid.UUID, body: ApproveIn | None = None, db: Session = 
         raise HTTPException(409, "This invoice was changed by someone else. Reload and try again.")
     if inv.status == "approved":
         raise HTTPException(409, f"Already approved by {inv.approved_by or 'someone'}.")
-    if inv.document.role == "ledger":
-        raise HTTPException(409, "Ledger rows are payment records; they are reconciled, not approved.")
+    if inv.document.role in ("ledger", "purchase_orders"):
+        raise HTTPException(409, "Rows of a ledger or purchase order list are records, not invoices to approve.")
     limit = Decimal(str(get_settings().approval_limit))
     big = inv.total is not None and abs(inv.total) >= limit
     bank_changed = any(f.rule_code == "BANK_CHANGED" for f in inv.findings)

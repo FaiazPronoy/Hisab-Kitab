@@ -1,6 +1,6 @@
 """Uploads a small demo batch through the running API: a clean PDF, a
 rotated scan, a corrupted PDF, a multi-invoice PDF, a wrong total, a
-ledger workbook and a CSV register. Then it signs in as the demo approver,
+ledger workbook, purchase orders and a CSV register. Then it signs in as the demo approver,
 approves two clean invoices so the payments screen has work, and sends one
 more invoice from a known supplier with new bank details."""
 import os
@@ -36,6 +36,19 @@ def demo_ledger(invs):
     return p
 
 
+def demo_purchase_orders(invs):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Purchase orders"
+    ws.append(["PO Number", "Supplier", "Amount", "Currency"])
+    ws.append(["PO-4471", invs[1]["supplier_name"], float(invs[1]["total"]), invs[1]["currency"]])
+    ws.append(["PO-4472", invs[2]["supplier_name"], round(float(invs[2]["total"]) * 0.8, 2), invs[2]["currency"]])
+    ws.append(["PO-4473", invs[0]["supplier_name"], 5000.0, invs[0]["currency"]])
+    p = OUT / "purchase_orders.xlsx"
+    wb.save(p)
+    return p
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     rng = random.Random(3)
@@ -45,6 +58,9 @@ def main():
         ["classic", "eu_vat", "wholesale", "receipt", "classic", "multipage", "credit_note", "classic"])]
     for inv in invs[:5]:
         inv["iban"] = generator.iban(rng)
+    # purchase orders: inv0001 fits its PO, inv0002 bills more than its PO allows, inv0003 cites an unknown PO
+    for k, po in ((1, "PO-4471"), (2, "PO-4472"), (3, "PO-4999")):
+        invs[k]["po_number"] = po
     files = []
     for inv in invs[:4]:
         p = OUT / f"{inv['id']}.pdf"
@@ -62,6 +78,7 @@ def main():
     bad.write_bytes(files[1].read_bytes()[:900])
     files.append(bad)
     files.append(demo_ledger(invs[:5]))
+    files.append(demo_purchase_orders(invs))
     csv = OUT / "register.csv"
     csv.write_text("Invoice No;Date;Supplier;Total;Currency\n" + "\n".join(
         f"{i['invoice_number']};{i['invoice_date']};{i['supplier_name']};{i['total'].replace('.', ',')};{i['currency']}" for i in invs[5:8]),

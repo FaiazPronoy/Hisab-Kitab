@@ -23,7 +23,7 @@ router = APIRouter(tags=["payments"])
 def ready(db: Session = Depends(get_db)):
     """Approved invoices that are not in a payment file yet, earliest due first."""
     rows = db.scalars(select(Invoice).join(Document).where(
-        Invoice.status == "approved", Invoice.payment_batch_id.is_(None), Document.role.is_distinct_from("ledger"))
+        Invoice.status == "approved", Invoice.payment_batch_id.is_(None), (Document.role.is_(None) | (Document.role == "invoices")))
         .order_by(Invoice.due_date.asc().nullslast(), Invoice.created_at)).all()
     return [{**inv_summary(i), "due_date": i.due_date.isoformat() if i.due_date else None,
              "account": mask(i.bank_account), "iban": bool(i.bank_account and iban_ok(i.bank_account)),

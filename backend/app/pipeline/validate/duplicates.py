@@ -34,7 +34,7 @@ def find(db, inv: Invoice) -> list[dict]:
     # ledger rows are payment records, compared to invoices by reconciliation, not here;
     # rows of an invoice register are compared with other register rows
     is_row = inv.row_index is not None
-    q = select(Invoice).join(Document).where(Invoice.id != inv.id, Document.role.is_distinct_from("ledger"),
+    q = select(Invoice).join(Document).where(Invoice.id != inv.id, (Document.role.is_(None) | (Document.role == "invoices")),
                                              Invoice.row_index.is_not(None) if is_row else Invoice.row_index.is_(None))
     conds = []
     if inv.invoice_number_norm:
