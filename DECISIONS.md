@@ -64,7 +64,7 @@ A register sheet (one invoice per row) is never sent to the LLM row by row. Colu
 
 ## 12. Gemini 3.5 Flash-Lite, temperature 0, with a provider interface
 
-The cheapest current model with JSON-schema structured output: $0.30 per million input tokens and $2.50 per million output tokens (Gemini pricing page, checked 2026-11-06). Gemini 3.5 Flash ($1.50 in, $9.00 out) is the vision fallback. Provider and model are environment variables. A `MockProvider` runs a label-based parser so the whole system and its tests work offline; it doubles as the rule-based baseline in the evaluation. The published Gemini numbers in EVALUATION.md come from Gemini 3.1 Flash-Lite, because the free tier allows 500 requests a day per model and the 3.5 quota was used up by earlier runs that day.
+The cheapest current model with JSON-schema structured output: $0.30 per million input tokens and $2.50 per million output tokens (Gemini pricing page, checked 2026-11-06). Gemini 3.5 Flash ($1.50 in, $9.00 out) is the vision fallback. Provider and model are environment variables. A `MockProvider` runs a label-based parser so the whole system and its tests work offline; it doubles as the rule-based baseline in the evaluation. Answers are capped at `LLM_MAX_OUTPUT_TOKENS` (16,384): the first cap of 4,096 cut off the JSON for invoices of about 30 lines, which the evaluation caught.
 
 Every call is cached by hash of prompt version, model and input, so reruns and repeated evals cost nothing. A token bucket, a concurrency semaphore and a spending cap (`LLM_BUDGET_USD`) bound cost.
 

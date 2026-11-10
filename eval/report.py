@@ -74,6 +74,8 @@ def write(s: dict, path: Path):
             g_note,
             "",
         ]
+        if s.get("comparison_note"):
+            lines += [s["comparison_note"], ""]
     lines += [
         f"## Extraction, digital PDFs (n = {ex['n']})",
         "",
@@ -170,7 +172,10 @@ def write(s: dict, path: Path):
 
     if s.get("sroie") and s["sroie"].get("n"):
         sr = s["sroie"]
-        rows = [[f, f"{v['right']} of {v['n']}", f"{v['right'] / v['n']:.2f}" if v["n"] else "-"] for f, v in sr["fields"].items()]
+        gs = (s.get("comparison") or {}).get("gemini", {}).get("sroie")
+        head = ["Field", "Rule parser (mock)"] + (["Gemini"] if gs else [])
+        rows = [[f, f"{v['right']} of {v['n']}"] + ([f"{gs['fields'][f]['right']} of {gs['fields'][f]['n']}"] if gs else [])
+                for f, v in sr["fields"].items()]
         lines += [
             "## Real receipts (ICDAR 2019 SROIE)",
             "",
@@ -178,9 +183,11 @@ def write(s: dict, path: Path):
             "downloaded at run time and not stored in the repo. Exact match after normalising: company letters and digits, "
             "the date as a calendar date, the total as a number.",
             "",
-            _t(["Field", "Right", "Accuracy"], rows),
+            _t(head, rows),
             "",
-            f"All three right on {sr['all_three_right']} of {sr['n']} receipts; {sr['processed']} produced a record.",
+            f"All three right on {sr['all_three_right']} of {sr['n']} receipts with the rule parser"
+            + (f" and {gs['all_three_right']} of {gs['n']} with Gemini" if gs else "") + ". "
+            "The rule parser looks for printed labels such as \"Total\", which receipts often leave out.",
             "",
         ]
     if s.get("learning"):
@@ -205,6 +212,14 @@ def write(s: dict, path: Path):
             f"{b['false_alarms']} false alarms on {b['genuine_with_history']} genuine invoices that had history.",
             "",
         ]
+        gl = (s.get("comparison") or {}).get("gemini", {}).get("learning")
+        if gl:
+            right = sum(p["right_first_time"] for p in gl["off"]["by_position"])
+            total = sum(p["n"] for p in gl["off"]["by_position"])
+            lines += [f"With Gemini the numbers were right first time on {right} of {total} invoices even with memory off, "
+                      "since the model reads unfamiliar labels; memory matters for the rule parser and for layouts a model misreads. "
+                      f"Gemini run: {gl['on']['bank']['caught']} of {gl['on']['bank']['planted']} bank changes stopped, "
+                      f"{gl['on']['bank']['false_alarms']} false alarms.", ""]
     lines += [
         "## Reliability, speed and cost",
         "",
