@@ -252,6 +252,8 @@ def test_invoices_are_matched_to_purchase_orders(client, H, tmp_path):
     ccy = "GBP"
     p, fits = pdf(tmp_path, 100, supplier_name="Order Match Ltd", po_number="PO-7001", currency=ccy)
     early = invoice(client, H, up(client, H, p)["document_id"])
+    p0, _ = pdf(tmp_path, 104, supplier_name="Order Match Ltd", po_number="PO-7404", currency=ccy)
+    stray = invoice(client, H, up(client, H, p0)["document_id"])
     assert not {x["rule_code"] for x in early["findings_list"]} & {"PO_UNKNOWN", "PO_OVER"}
     rows = [["PO-7001", "Order Match Ltd", float(fits["total"]), ccy],
             ["PO-7002", "Order Match Ltd", 10.0, ccy]]
@@ -265,6 +267,9 @@ def test_invoices_are_matched_to_purchase_orders(client, H, tmp_path):
     wb.save(path)
     d = client.get(f"/api/v1/documents/{up(client, H, path)['document_id']}", headers=H).json()
     assert d["role"] == "purchase_orders" and {i["status"] for i in d["invoices"]} == {"po"}
+    # an invoice read before the POs arrived is checked again once they do
+    again = client.get(f"/api/v1/invoices/{stray['id']}", headers=H).json()
+    assert "PO_UNKNOWN" in {x["rule_code"] for x in again["findings_list"]}
 
     p2, _ = pdf(tmp_path, 101, supplier_name="Order Match Ltd", po_number="PO-7002", currency=ccy)
     over = invoice(client, H, up(client, H, p2)["document_id"])

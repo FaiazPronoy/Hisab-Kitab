@@ -296,15 +296,15 @@ def run_sheet(db, doc: Document, path):
 
 
 def _recheck_po_invoices(db, doc):
-    """Invoices read before their purchase orders arrived are checked again."""
-    keys = {po.norm_po(i.po_number) for i in doc.invoices} - {""}
-    if not keys:
+    """Invoices read before the purchase orders arrived are checked again,
+    both those that cite one of these POs and those whose PO is still unknown."""
+    if not any(po.norm_po(i.po_number) for i in doc.invoices):
         return
     waiting = db.scalars(select(Invoice).join(Document).where(
         Invoice.po_number.is_not(None), Invoice.status != "approved",
         Document.role.is_(None) | (Document.role == "invoices"))).all()
     for inv in waiting:
-        if po.norm_po(inv.po_number) in keys:
+        if po.norm_po(inv.po_number):
             revalidate(db, inv, pages_failed=inv.document.pages_failed)
             d = inv.document
             if d.status in ("done", "needs_review"):
