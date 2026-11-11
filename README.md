@@ -1,13 +1,13 @@
-# Hisab Kitab
+# Hisab Kitab (হিসাব কিতাব)
 
-[![CI](https://github.com/FaiazPronoy/hisab-kitab/actions/workflows/ci.yml/badge.svg)](https://github.com/FaiazPronoy/hisab-kitab/actions/workflows/ci.yml)
+[![CI](https://github.com/FaiazPronoy/Hisab-Kitab/actions/workflows/ci.yml/badge.svg)](https://github.com/FaiazPronoy/Hisab-Kitab/actions/workflows/ci.yml)
 
 **A document intelligence system for accounts payable: it reads invoices, receipts, scans and spreadsheets, checks them, sends anything doubtful to a reviewer and pays what is approved.**
 Every extracted value points to the line it came from on the page. If the system cannot find a value in the document, it does not keep it.
 
 | | |
 |---|---|
-| **Type** | Take-home project, solo |
+| **Type** | Take-home project, solo (not for a course) |
 | **Made by** | Faiaz Abrar Zaman Pronoy |
 | **History** | Built in November 2026: the pipeline in five days, then reviewer roles, supplier memory and payments |
 | **Docs** | [Architecture](docs/architecture.md), [Database schema](docs/schema.md), [API](docs/api.md), [Design decisions](DECISIONS.md), [Evaluation](EVALUATION.md), [Prompts](PROMPTS.md) |
