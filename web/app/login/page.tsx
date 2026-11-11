@@ -34,17 +34,17 @@ function Form() {
 
   return (
     <div className="grid min-h-screen lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-      <section className="hidden flex-col justify-between bg-navy p-10 text-white lg:flex">
+      <section className="hidden flex-col justify-between bg-deep p-10 text-white lg:flex">
         <div className="flex items-center gap-3"><Mark size={34} /><span className="text-lg font-semibold">Hisab Kitab</span></div>
         <div className="max-w-md">
           <h2 className="text-[28px] leading-9 font-semibold tracking-[-0.01em]">Every value on an invoice, with the line it came from.</h2>
-          <ul className="mt-6 space-y-3 text-[15px] text-[#c3cfe2]">
+          <ul className="mt-6 space-y-3 text-[15px] text-[#cde2de]">
             <li>Values are kept only when they can be found on the page.</li>
             <li>Totals, tax, duplicates and changed bank details are checked in code.</li>
             <li>Only doubtful invoices reach a person, and what they fix is remembered.</li>
           </ul>
         </div>
-        <p className="text-xs text-[#9fb2cf]">Accounts payable workspace</p>
+        <p className="text-xs text-[#a6c6c1]">Accounts payable workspace</p>
       </section>
       <section className="flex items-center justify-center bg-ground px-4 py-12">
         <div className="w-full max-w-sm">

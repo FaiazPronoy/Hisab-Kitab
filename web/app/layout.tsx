@@ -12,7 +12,7 @@ export const metadata = {
   description: "Document intelligence for accounts payable: invoices read, checked, reviewed and paid",
 };
 
-export const viewport = { themeColor: "#10233f" };
+export const viewport = { themeColor: "#0b3b3c" };
 
 // runs before paint so a dark-mode user never sees a white flash
 const THEME = `try{var t=localStorage.getItem("docintel.theme");if(t==="dark"||(!t&&matchMedia("(prefers-color-scheme: dark)").matches))document.documentElement.classList.add("dark")}catch(e){}`;

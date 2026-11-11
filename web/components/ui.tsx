@@ -8,7 +8,7 @@ export function Button({ variant = "primary", className, ...p }: ButtonHTMLAttri
       {...p}
       className={clsx(
         "inline-flex h-9 items-center justify-center gap-2 rounded-md px-3.5 text-sm font-medium whitespace-nowrap transition-colors active:translate-y-px disabled:pointer-events-none disabled:opacity-45 max-sm:h-11",
-        variant === "primary" && "bg-brand text-white hover:bg-brand-dark",
+        variant === "primary" && "bg-brand-dark text-white hover:bg-brand",
         variant === "ghost" && "border border-control bg-surface text-ink hover:bg-paper",
         variant === "danger" && "bg-red-700 text-white hover:bg-red-800",
         className,
@@ -54,7 +54,7 @@ export function Chip({ value, className }: { value: string; className?: string }
   return (
     <span className={clsx("inline-flex h-[22px] items-center gap-1.5 rounded px-2 text-xs font-medium whitespace-nowrap", TONES[tone], className)}>
       <span className={clsx("h-1.5 w-1.5 rounded-full", { good: "bg-[#1f8a4c]", warn: "bg-accent", bad: "bg-[#c4242a]", info: "bg-brand", plain: "bg-[#8a919c]" }[tone])} aria-hidden />
-      {value.replaceAll("_", " ")}
+      {value === "po" ? "purchase order" : value.replaceAll("_", " ")}
     </span>
   );
 }

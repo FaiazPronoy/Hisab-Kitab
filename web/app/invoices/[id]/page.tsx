@@ -155,7 +155,7 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
                   {boxes.map((b) => (
                     <rect key={b.key} x={b.bbox[0] - 0.004} y={b.bbox[1] - 0.003} width={b.bbox[2] - b.bbox[0] + 0.008} height={b.bbox[3] - b.bbox[1] + 0.006}
                       className="pointer-events-auto cursor-pointer" onMouseEnter={() => setFocus(b.key)}
-                      fill={focus === b.key ? "rgba(217,119,6,0.22)" : "rgba(26,54,93,0.06)"} stroke={focus === b.key ? "#d97706" : "rgba(26,54,93,0.4)"} strokeWidth={focus === b.key ? 0.003 : 0.0015} />
+                      fill={focus === b.key ? "rgba(255,111,89,0.24)" : "rgba(15,118,110,0.06)"} stroke={focus === b.key ? "#ff6f59" : "rgba(15,118,110,0.45)"} strokeWidth={focus === b.key ? 0.003 : 0.0015} />
                   ))}
                 </svg>
               </div>
@@ -203,7 +203,7 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
 
           <div className="rounded-lg border border-line bg-surface">
             <h2 className="border-b border-line px-4 py-3 text-[15px] font-semibold">Fields</h2>
-            <div className={clsx("grid grid-cols-1 gap-x-3 gap-y-1 border-b border-rule px-4 py-2.5 sm:grid-cols-[8.5rem_minmax(0,1fr)]", focus === "bank_account" && "bg-warnwash")}>
+            <div className={clsx("grid grid-cols-1 gap-x-3 gap-y-1 border-b border-rule px-4 py-2.5 sm:grid-cols-[8.5rem_minmax(0,1fr)]", focus === "bank_account" && "bg-infowash")}>
               <label htmlFor="f-bank_account" className="text-[13px] text-muted sm:pt-2">Pay to account</label>
               <div className="min-w-0">
                 <input id="f-bank_account" value={edits.bank_account ?? inv.bank_account ?? ""} spellCheck={false} autoComplete="off"
@@ -219,7 +219,7 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
               if (!f) return null;
               const val = edits[k] ?? f.value ?? "";
               return (
-                <div key={k} className={clsx("grid grid-cols-1 gap-x-3 gap-y-1 border-b border-rule px-4 py-2.5 last:border-0 sm:grid-cols-[8.5rem_minmax(0,1fr)]", focus === k && "bg-warnwash")}>
+                <div key={k} className={clsx("grid grid-cols-1 gap-x-3 gap-y-1 border-b border-rule px-4 py-2.5 last:border-0 sm:grid-cols-[8.5rem_minmax(0,1fr)]", focus === k && "bg-infowash")}>
                   <label htmlFor={`f-${k}`} className="text-[13px] text-muted sm:pt-2">{label(k)}</label>
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
@@ -247,7 +247,7 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
                   <thead><tr><th>Description</th><th className="r w-20">Qty</th><th className="r w-28">Unit</th><th className="r w-28">Amount</th></tr></thead>
                   <tbody>
                     {inv.line_items.map((li: any, i: number) => (
-                      <tr key={i} className={clsx(focus === `line_items[${i}]` && "[&>td]:bg-warnwash")}>
+                      <tr key={i} className={clsx(focus === `line_items[${i}]` && "[&>td]:bg-infowash")}>
                         {(["description", "quantity", "unit_price", "amount"] as const).map((c) => {
                           const key = `line_items[${li.idx}].${c}`;
                           return (

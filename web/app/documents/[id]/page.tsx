@@ -89,7 +89,7 @@ export default function DocumentDetail({ params }: { params: Promise<{ id: strin
             <div className="flex flex-wrap gap-1 border-b border-rule px-4 py-3" aria-hidden>
               {d.pages.map((p) => (
                 <span key={p.page_no} title={`Page ${p.page_no}: ${p.status}`}
-                  className={clsx("h-3 w-3 rounded-[2px]", p.status === "done" ? (p.source === "text_layer" ? "bg-brand" : "bg-[#6b86ad]") : p.status === "failed" ? "bg-[#c4242a]" : "bg-rule")} />
+                  className={clsx("h-3 w-3 rounded-[2px]", p.status === "done" ? (p.source === "text_layer" ? "bg-brand" : "bg-[#5fa39a]") : p.status === "failed" ? "bg-[#c4242a]" : "bg-rule")} />
               ))}
             </div>
             <div className="max-h-80 overflow-auto">

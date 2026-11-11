@@ -21,7 +21,7 @@ export default function ReviewQueue() {
     <>
       <PageTitle title="Review queue"
         sub="Invoices with errors, missing key fields or more than one warning, most severe first."
-        right={rows.length > 0 ? <Link href={`/invoices/${rows[0].id}`} className="inline-flex h-9 items-center rounded-md bg-brand px-3.5 text-sm font-medium text-white hover:bg-brand-dark max-sm:h-11">Start with the first</Link> : null} />
+        right={rows.length > 0 ? <Link href={`/invoices/${rows[0].id}`} className="inline-flex h-9 items-center rounded-md bg-brand-dark px-3.5 text-sm font-medium text-white hover:bg-brand max-sm:h-11">Start with the first</Link> : null} />
       {q.isLoading ? <Loading rows={6} /> : q.isError ? <ErrorNote retry={() => q.refetch()}>Could not load the review queue.</ErrorNote>
         : !rows.length ? <Empty>Nothing waiting for review. Every processed invoice passed its checks.</Empty> : (
         <Card>

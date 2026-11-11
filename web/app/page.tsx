@@ -37,7 +37,7 @@ function PageGrid({ doc }: { doc: Doc }) {
     <div className="mt-2.5 flex flex-wrap gap-[3px]" aria-label="Page status">
       {doc.pages.map((p) => (
         <span key={p.page_no} title={`Page ${p.page_no}: ${p.status}${p.source ? ` (${p.source})` : ""}`}
-          className={clsx("h-2.5 w-2.5 rounded-[2px]", p.status === "done" ? (p.source === "ocr" ? "bg-[#6b86ad]" : "bg-brand") : p.status === "failed" ? "bg-[#c4242a]" : "bg-rule")} />
+          className={clsx("h-2.5 w-2.5 rounded-[2px]", p.status === "done" ? (p.source === "ocr" ? "bg-[#5fa39a]" : "bg-brand") : p.status === "failed" ? "bg-[#c4242a]" : "bg-rule")} />
       ))}
     </div>
   );
@@ -95,22 +95,22 @@ function Pulse() {
   const auto = invs.auto_validated || 0;
   const share = nInv ? Math.round((auto / nInv) * 100) : 0;
   return (
-    <div className="mb-6 overflow-hidden rounded-lg bg-navy text-white">
+    <div className="mb-6 overflow-hidden rounded-lg bg-deep text-white">
       <div className="grid gap-px bg-white/10 sm:grid-cols-3">
-        <div className="bg-navy px-5 py-4">
-          <p className="text-xs text-[#9fb2cf]">Documents read</p>
+        <div className="bg-deep px-5 py-4">
+          <p className="text-xs text-[#a6c6c1]">Documents read</p>
           <p className="num mt-1 text-2xl">{nDoc}</p>
-          <p className="mt-0.5 text-xs text-[#9fb2cf]">{nInv} invoices found in them</p>
+          <p className="mt-0.5 text-xs text-[#a6c6c1]">{nInv} invoices found in them</p>
         </div>
-        <div className="bg-navy px-5 py-4">
-          <p className="text-xs text-[#9fb2cf]">Passed every check on their own</p>
-          <p className="num mt-1 text-2xl">{auto} <span className="text-base text-[#9fb2cf]">({share}%)</span></p>
-          <div className="mt-2 h-1.5 rounded-full bg-white/10"><div className="h-1.5 rounded-full bg-amber" style={{ width: `${share}%` }} /></div>
+        <div className="bg-deep px-5 py-4">
+          <p className="text-xs text-[#a6c6c1]">Passed every check on their own</p>
+          <p className="num mt-1 text-2xl">{auto} <span className="text-base text-[#a6c6c1]">({share}%)</span></p>
+          <div className="mt-2 h-1.5 rounded-full bg-white/10"><div className="h-1.5 rounded-full bg-coral" style={{ width: `${share}%` }} /></div>
         </div>
-        <Link href="/review" className="group bg-navy px-5 py-4 transition-colors hover:bg-[#152c4f]">
-          <p className="text-xs text-[#9fb2cf]">Waiting for a person</p>
-          <p className="num mt-1 text-2xl text-amber">{m.data.needs_review}</p>
-          <p className="mt-0.5 flex items-center gap-1 text-xs text-[#c3cfe2] group-hover:text-white">Open the review queue <ChevronRight size={14} aria-hidden /></p>
+        <Link href="/review" className="group bg-deep px-5 py-4 transition-colors hover:bg-[#0f4a4a]">
+          <p className="text-xs text-[#a6c6c1]">Waiting for a person</p>
+          <p className="num mt-1 text-2xl text-coral">{m.data.needs_review}</p>
+          <p className="mt-0.5 flex items-center gap-1 text-xs text-[#cde2de] group-hover:text-white">Open the review queue <ChevronRight size={14} aria-hidden /></p>
         </Link>
       </div>
     </div>
