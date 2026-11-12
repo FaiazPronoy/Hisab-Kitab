@@ -111,17 +111,17 @@ Measured with `make eval` on 180 generated invoices (126 in the scored test spli
 
 | Metric | Offline rule parser | Gemini 3.5 Flash-Lite |
 |---|---|---|
-| Field F1 on digital PDFs (macro) | 0.997 | 0.990 |
-| Invoices with every key field right | 0.976 | 0.968 |
+| Field F1 on digital PDFs (macro) | 0.997 | 0.977 |
+| Invoices with every key field right | 0.976 | 0.944 |
 | Values given where the document has none | 0 | 0 |
-| Wrong or planted invoices sent to review | 16 of 18 | 16 of 18 |
-| Line item F1 | 0.922 | 0.964 |
+| Wrong or planted invoices sent to review | 16 of 18 | 16 of 21 |
+| Line item F1 | 0.922 | 0.967 |
 | Multi-invoice PDFs split correctly | 12 of 12 | 12 of 12 |
-| Documents processed without a pipeline failure | 1.000 | 0.992 |
-| LLM cost for the whole run | $0 | $1.07 |
-| Real receipts (SROIE, 40): company, date and total all right | 2 of 40 | 30 of 40 |
+| Documents processed without a pipeline failure | 1.000 | 0.979 |
+| LLM cost for the whole run | $0 | $1.06 |
+| Real receipts (SROIE, 40): company, date and total all right | 2 of 40 | 31 of 40 |
 
-Cost is estimated from token counts at paid-tier prices. The run used the free AI Studio tier, so nothing was billed. In the Gemini run 2 of 237 documents failed and the two planted invoices it did not send to review were inside them. At least one failure was a long invoice whose answer hit the 4,096-token output limit; the limit is now 16,384 and the two longest invoices (34 and 31 lines) read in full, but the table is from the run before that fix.
+Cost is estimated from token counts at paid-tier prices. The run used the free AI Studio tier, so nothing was billed. In the Gemini run 5 of 237 documents failed because the Gemini service answered 503 (busy), and the eval does not retry. Those 5 count as misses in the Gemini column. Every wrong invoice Gemini did read (16 of 16) went to review. In the app, workers retry these errors with backoff.
 
 Other measured results (offline parser unless a line says otherwise):
 
@@ -131,7 +131,7 @@ Other measured results (offline parser unless a line says otherwise):
 - Broken files (truncated, renamed, empty, encrypted, fake workbook, wrong type): 6 of 6 handled with the right error
 - Supplier memory: six suppliers print their invoice number after a label the parser does not know. After one correction per supplier, the number was right on 24 of their next 24 invoices with memory on and 0 of 24 with it off; the reviewer fixed 6 numbers instead of 28
 - Changed bank details: 2 of 2 planted IBAN changes stopped, no false alarm on 22 genuine invoices from the same suppliers
-- Real receipts from the public SROIE benchmark (40 scans): Gemini got company 33, date 37 and total 39 right; the rule parser, which looks for printed labels, 15, 14 and 17
+- Real receipts from the public SROIE benchmark (40 scans): Gemini got company 34, date 37 and total 39 right; the rule parser, which looks for printed labels, 15, 14 and 17
 
 Large files, one worker with two processes:
 
