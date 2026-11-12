@@ -1,5 +1,6 @@
 import clsx from "clsx";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { statusLabel, useLang } from "@/lib/i18n";
 
 export function Button({ variant = "primary", className, ...p }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "ghost" | "danger" }) {
   return (
@@ -50,19 +51,28 @@ const TONE_OF: Record<string, Tone> = {
 };
 
 export function Chip({ value, className }: { value: string; className?: string }) {
+  const { lang } = useLang();
   const tone = TONE_OF[value] || TONE_OF[value.split(" ").pop() || ""] || "plain";
   return (
     <span className={clsx("inline-flex h-[22px] items-center gap-1.5 rounded px-2 text-xs font-medium whitespace-nowrap", TONES[tone], className)}>
       <span className={clsx("h-1.5 w-1.5 rounded-full", { good: "bg-[#1f8a4c]", warn: "bg-accent", bad: "bg-[#c4242a]", info: "bg-brand", plain: "bg-[#8a919c]" }[tone])} aria-hidden />
-      {value === "po" ? "purchase order" : value.replaceAll("_", " ")}
+      {statusLabel(value, lang)}
     </span>
   );
 }
 
 export function Confidence({ c, reason, source }: { c: number | null; reason?: string | null; source?: string | null }) {
-  if (reason) return <span className="shrink-0 text-xs text-muted">{reason.replaceAll("_", " ")}</span>;
-  if (source === "user") return <span className="shrink-0 text-xs font-medium text-brand">corrected</span>;
-  if (source === "memory") return <span className="shrink-0 text-xs font-medium text-brand" title="Found with a label learned from an earlier correction">learned</span>;
+  const { t } = useLang();
+  if (reason) {
+    const why: Record<string, [string, string]> = {
+      not_on_document: ["not on the page", "পাতায় নেই"], unverified: ["removed, not on the page", "পাতায় না পাওয়ায় বাদ"],
+      unparseable: ["could not read", "পড়া যায়নি"], not_in_sheet: ["no such column", "এই কলাম নেই"],
+    };
+    const w = why[reason];
+    return <span className="shrink-0 text-xs text-muted">{w ? t(w[0], w[1]) : reason.replaceAll("_", " ")}</span>;
+  }
+  if (source === "user") return <span className="shrink-0 text-xs font-medium text-brand">{t("fixed by hand", "হাতে ঠিক করা")}</span>;
+  if (source === "memory") return <span className="shrink-0 text-xs font-medium text-brand" title={t("Found with a label learned from an earlier fix", "আগের সংশোধন থেকে শেখা লেবেল দিয়ে পাওয়া")}>{t("learned", "শেখা")}</span>;
   if (c == null) return null;
   const p = Math.round(c * 100);
   const low = c < 0.75;
@@ -89,7 +99,7 @@ export function Empty({ children, action }: { children: ReactNode; action?: Reac
 
 export function Loading({ rows = 4 }: { rows?: number }) {
   return (
-    <div className="rounded-lg border border-line bg-surface" role="status" aria-label="Loading">
+    <div className="rounded-lg border border-line bg-surface" role="status" aria-label="Loading / লোড হচ্ছে">
       {Array.from({ length: rows }, (_, i) => (
         <div key={i} className="flex items-center gap-4 border-b border-rule px-4 py-[15px] last:border-0">
           <span className="h-3.5 w-40 rounded bg-rule" />
@@ -102,10 +112,11 @@ export function Loading({ rows = 4 }: { rows?: number }) {
 }
 
 export function ErrorNote({ children, retry }: { children: ReactNode; retry?: () => void }) {
+  const { t } = useLang();
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-lg border border-badline bg-badwash px-4 py-3 text-sm text-bad" role="alert">
       <span>{children}</span>
-      {retry && <button type="button" onClick={retry} className="font-medium underline underline-offset-2">Retry</button>}
+      {retry && <button type="button" onClick={retry} className="font-medium underline underline-offset-2">{t("Try again", "আবার চেষ্টা করুন")}</button>}
     </div>
   );
 }

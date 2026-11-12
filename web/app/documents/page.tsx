@@ -5,13 +5,14 @@ import Link from "next/link";
 import { useState } from "react";
 import { api, type Doc } from "@/lib/api";
 import { Card, Chip, Empty, ErrorNote, Loading, PageTitle } from "@/components/ui";
+import { statusLabel, useLang } from "@/lib/i18n";
 
-const nice = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).replaceAll("_", " ");
 const STATUSES = ["queued", "processing", "done", "needs_review", "completed_with_errors", "failed"];
 const when = (s: string) => new Date(s).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-const pages = (d: Doc) => `${d.pages_done}/${d.page_count}${d.pages_failed ? `, ${d.pages_failed} failed` : ""}`;
+const pages = (d: Doc) => `${d.pages_done}/${d.page_count}`;
 
 export default function Documents() {
+  const { t, lang } = useLang();
   const [status, setStatus] = useState("");
   const q = useQuery({
     queryKey: ["docs", status],
@@ -21,14 +22,14 @@ export default function Documents() {
   const m = useQuery({ queryKey: ["metrics"], queryFn: () => api<any>("/metrics/summary"), refetchInterval: 10000 });
   const counts: Record<string, number> = m.data?.documents || {};
   const all = Object.values(counts).reduce((a, b) => a + b, 0);
-  const tabs = [["", "All", all] as const, ...STATUSES.filter((s) => counts[s]).map((s) => [s, nice(s), counts[s]] as const)];
-  if (status && !counts[status]) tabs.push([status, nice(status), 0]);
+  const tabs = [["", t("All", "সব"), all] as const, ...STATUSES.filter((s) => counts[s]).map((s) => [s, statusLabel(s, lang), counts[s]] as const)];
+  if (status && !counts[status]) tabs.push([status, statusLabel(status, lang), 0]);
   const items = q.data?.items || [];
 
   return (
     <>
-      <PageTitle title="Documents" sub="Every uploaded file, newest first, with how far it got through the pipeline." />
-      <div className="-mx-4 mb-4 overflow-x-auto px-4 sm:mx-0 sm:px-0" role="tablist" aria-label="Filter by status">
+      <PageTitle title={t("Documents", "ডকুমেন্ট")} sub={t("Every file you uploaded, newest first.", "আপলোড করা সব ফাইল, নতুনগুলো আগে।")} />
+      <div className="-mx-4 mb-4 overflow-x-auto px-4 sm:mx-0 sm:px-0" role="tablist" aria-label={t("Filter by status", "অবস্থা দিয়ে বাছুন")}>
         <div className="flex w-max gap-1 rounded-lg bg-sunken p-1">
           {tabs.map(([v, label, n]) => (
             <button key={v || "all"} type="button" role="tab" aria-selected={status === v} onClick={() => setStatus(v)}
@@ -40,11 +41,11 @@ export default function Documents() {
         </div>
       </div>
 
-      {q.isLoading ? <Loading rows={6} /> : q.isError ? <ErrorNote retry={() => q.refetch()}>Could not load documents. {(q.error as Error).message}</ErrorNote>
-        : !items.length ? <Empty action={<Link href="/" className="text-sm font-medium text-brand hover:underline">Upload files</Link>}>{status ? "No documents with this status." : "No documents yet."}</Empty> : (
+      {q.isLoading ? <Loading rows={6} /> : q.isError ? <ErrorNote retry={() => q.refetch()}>{t("Could not load the documents.", "ডকুমেন্ট লোড হয়নি।")} {(q.error as Error).message}</ErrorNote>
+        : !items.length ? <Empty action={<Link href="/" className="text-sm font-medium text-brand hover:underline">{t("Upload files", "ফাইল আপলোড")}</Link>}>{status ? t("No files with this status.", "এই অবস্থায় কোনো ফাইল নেই।") : t("No files yet.", "এখনো কোনো ফাইল নেই।")}</Empty> : (
         <Card>
           <table className="tbl hidden text-sm sm:table">
-            <thead><tr><th>File</th><th>Type</th><th className="r">Pages</th><th>Status</th><th className="r">Uploaded</th></tr></thead>
+            <thead><tr><th>{t("File", "ফাইল")}</th><th>{t("Type", "ধরন")}</th><th className="r">{t("Pages", "পাতা")}</th><th>{t("Status", "অবস্থা")}</th><th className="r">{t("Uploaded", "আপলোড")}</th></tr></thead>
             <tbody>
               {items.map((d) => (
                 <tr key={d.id}>
@@ -68,7 +69,7 @@ export default function Documents() {
                     <span className="min-w-0 flex-1 truncate font-medium">{d.filename}</span>
                     <Chip value={d.status} />
                   </span>
-                  <span className="mt-1 block text-[13px] text-muted">{d.kind} · <span className="num">{pages(d)}</span> pages · {when(d.created_at)}</span>
+                  <span className="mt-1 block text-[13px] text-muted">{d.kind} · <span className="num">{pages(d)}</span> {t("pages", "পাতা")} · {when(d.created_at)}</span>
                   {d.error_message && <span className="mt-0.5 block text-xs text-bad">{d.error_message}</span>}
                 </Link>
               </li>

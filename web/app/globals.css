@@ -31,7 +31,7 @@
   --color-warnline: var(--c-warnline);
   --color-infowash: var(--c-infowash);
   --color-plainwash: var(--c-plainwash);
-  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-plex-sans), var(--font-bangla), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-plex-mono), ui-monospace, monospace;
 }
 

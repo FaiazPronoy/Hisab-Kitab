@@ -6,13 +6,14 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { api, eventsUrl, type Doc, type InvoiceSummary } from "@/lib/api";
 import { Button, Chip, Panel, Spinner } from "@/components/ui";
+import { useLang } from "@/lib/i18n";
 
 type Row = { key: string; filename: string; id?: string; status: string; error?: string | null; doc?: Doc };
 const STEPS = [
-  { title: "Check", text: "Type, size, password and duplicates" },
-  { title: "Read", text: "Text layer first, OCR for scans" },
-  { title: "Validate", text: "Totals, tax, dates and duplicates" },
-  { title: "Review", text: "Only doubtful invoices reach a person" },
+  { title: ["1. Check the file", "১. ফাইল দেখা"], text: ["Type, size, password and copies", "ধরন, আকার, পাসওয়ার্ড আর কপি"] },
+  { title: ["2. Read", "২. পড়া"], text: ["Text if the PDF has it, OCR for scans", "PDF-এ লেখা থাকলে সেটা, স্ক্যানে OCR"] },
+  { title: ["3. Check the numbers", "৩. হিসাব যাচাই"], text: ["Totals, tax, dates and copies", "যোগফল, ট্যাক্স, তারিখ আর কপি"] },
+  { title: ["4. Review", "৪. রিভিউ"], text: ["Only unclear invoices go to a person", "শুধু সন্দেহজনকগুলো মানুষের কাছে যায়"] },
 ];
 const FINAL = ["done", "needs_review", "completed_with_errors", "failed", "rejected"];
 const TYPES = ["PDF", "JPG", "PNG", "TIFF", "XLSX", "XLS", "CSV"];
@@ -44,6 +45,7 @@ function PageGrid({ doc }: { doc: Doc }) {
 }
 
 function QueueRow({ row, update }: { row: Row; update: (r: Partial<Row>) => void }) {
+  const { t } = useLang();
   useDocProgress(row, (d) => update({ status: d.status, doc: d, error: d.error_message }));
   const [retrying, setRetrying] = useState(false);
   const d = row.doc;
@@ -64,13 +66,13 @@ function QueueRow({ row, update }: { row: Row; update: (r: Partial<Row>) => void
     <li className="px-4 py-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="min-w-0 flex-1 truncate font-medium" title={row.filename}>{row.filename}</span>
-        {d && d.page_count > 0 && <span className="num text-xs text-muted">{d.pages_done}/{d.page_count} pages</span>}
+        {d && d.page_count > 0 && <span className="num text-xs text-muted">{d.pages_done}/{d.page_count} {t("pages", "পাতা")}</span>}
         <span className="flex items-center gap-2">{busy && <Spinner />}<Chip value={row.status} /></span>
         {row.id && FINAL.includes(row.status) && row.status !== "rejected" && (
-          <Link className="text-sm font-medium text-brand hover:underline" href={`/documents/${row.id}`}>Open</Link>
+          <Link className="text-sm font-medium text-brand hover:underline" href={`/documents/${row.id}`}>{t("Open", "খুলুন")}</Link>
         )}
         {(row.status === "completed_with_errors" || row.status === "failed") && (
-          <Button variant="ghost" onClick={retry} disabled={retrying}>{retrying && <Spinner />} Retry</Button>
+          <Button variant="ghost" onClick={retry} disabled={retrying}>{retrying && <Spinner />} {t("Try again", "আবার চেষ্টা")}</Button>
         )}
       </div>
       {busy && d && d.page_count > 0 && (
@@ -85,6 +87,7 @@ function QueueRow({ row, update }: { row: Row; update: (r: Partial<Row>) => void
 }
 
 function Pulse() {
+  const { t } = useLang();
   const m = useQuery({ queryKey: ["metrics"], queryFn: () => api<any>("/metrics/summary"), refetchInterval: 10000 });
   if (!m.data) return null;
   const invs: Record<string, number> = m.data.invoices || {};
@@ -98,19 +101,19 @@ function Pulse() {
     <div className="mb-6 overflow-hidden rounded-lg bg-deep text-white">
       <div className="grid gap-px bg-white/10 sm:grid-cols-3">
         <div className="bg-deep px-5 py-4">
-          <p className="text-xs text-[#a6c6c1]">Documents read</p>
+          <p className="text-xs text-[#a6c6c1]">{t("Files read", "পড়া ফাইল")}</p>
           <p className="num mt-1 text-2xl">{nDoc}</p>
-          <p className="mt-0.5 text-xs text-[#a6c6c1]">{nInv} invoices found in them</p>
+          <p className="mt-0.5 text-xs text-[#a6c6c1]">{t(`${nInv} invoices found in them`, `এগুলোতে ${nInv}টি ইনভয়েস`)}</p>
         </div>
         <div className="bg-deep px-5 py-4">
-          <p className="text-xs text-[#a6c6c1]">Passed every check on their own</p>
+          <p className="text-xs text-[#a6c6c1]">{t("Passed all checks, no person needed", "সব যাচাই পাস, মানুষ লাগেনি")}</p>
           <p className="num mt-1 text-2xl">{auto} <span className="text-base text-[#a6c6c1]">({share}%)</span></p>
           <div className="mt-2 h-1.5 rounded-full bg-white/10"><div className="h-1.5 rounded-full bg-coral" style={{ width: `${share}%` }} /></div>
         </div>
         <Link href="/review" className="group bg-deep px-5 py-4 transition-colors hover:bg-[#0f4a4a]">
-          <p className="text-xs text-[#a6c6c1]">Waiting for a person</p>
+          <p className="text-xs text-[#a6c6c1]">{t("Waiting for a person", "মানুষের অপেক্ষায়")}</p>
           <p className="num mt-1 text-2xl text-coral">{m.data.needs_review}</p>
-          <p className="mt-0.5 flex items-center gap-1 text-xs text-[#cde2de] group-hover:text-white">Open the review queue <ChevronRight size={14} aria-hidden /></p>
+          <p className="mt-0.5 flex items-center gap-1 text-xs text-[#cde2de] group-hover:text-white">{t("Open the review list", "রিভিউ তালিকা খুলুন")} <ChevronRight size={14} aria-hidden /></p>
         </Link>
       </div>
     </div>
@@ -118,14 +121,15 @@ function Pulse() {
 }
 
 function Waiting() {
+  const { t } = useLang();
   const q = useQuery({ queryKey: ["queue"], queryFn: () => api<InvoiceSummary[]>("/review-queue?limit=200"), refetchInterval: 5000 });
   const rows = q.data || [];
   return (
-    <Panel title="Waiting for review" meta={q.data ? `${rows.length} ${rows.length === 1 ? "invoice" : "invoices"}` : undefined}
-      right={rows.length > 0 ? <Link href="/review" className="text-sm font-medium text-brand hover:underline">View all</Link> : null}>
-      {q.isLoading ? <p className="px-4 py-4 text-sm text-muted">Loading the queue…</p>
-        : q.isError ? <p className="px-4 py-4 text-sm text-bad">Could not load the queue. <button type="button" className="underline" onClick={() => q.refetch()}>Retry</button></p>
-        : rows.length === 0 ? <p className="px-4 py-4 text-sm text-muted">Nothing waiting. Every processed invoice passed its checks.</p> : (
+    <Panel title={t("To review", "রিভিউ বাকি")} meta={q.data ? t(`${rows.length} ${rows.length === 1 ? "invoice" : "invoices"}`, `${rows.length}টি ইনভয়েস`) : undefined}
+      right={rows.length > 0 ? <Link href="/review" className="text-sm font-medium text-brand hover:underline">{t("See all", "সব দেখুন")}</Link> : null}>
+      {q.isLoading ? <p className="px-4 py-4 text-sm text-muted">{t("Loading…", "লোড হচ্ছে…")}</p>
+        : q.isError ? <p className="px-4 py-4 text-sm text-bad">{t("Could not load the list.", "তালিকা লোড হয়নি।")} <button type="button" className="underline" onClick={() => q.refetch()}>{t("Try again", "আবার চেষ্টা")}</button></p>
+        : rows.length === 0 ? <p className="px-4 py-4 text-sm text-muted">{t("Nothing to review. Every invoice passed its checks.", "রিভিউ বাকি নেই। সব ইনভয়েস যাচাই পাস করেছে।")}</p> : (
         <ul>
           {rows.slice(0, 6).map((i) => {
             const bad = (i.findings.critical || 0) + (i.findings.error || 0);
@@ -134,10 +138,10 @@ function Waiting() {
               <li key={i.id} className="border-b border-rule last:border-0">
                 <Link href={`/invoices/${i.id}`} className="group flex items-center gap-3 px-4 py-2.5 hover:bg-paper">
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-ink">{i.supplier_name || "Unknown supplier"}</span>
+                    <span className="block truncate text-sm font-medium text-ink">{i.supplier_name || t("Unknown supplier", "অজানা সরবরাহকারী")}</span>
                     <span className="block truncate text-xs text-muted">
-                      <span className="num">{i.invoice_number || "no number"}</span>
-                      {bad ? ` · ${bad} ${bad === 1 ? "error" : "errors"}` : ""}{warn ? ` · ${warn} ${warn === 1 ? "warning" : "warnings"}` : ""}
+                      <span className="num">{i.invoice_number || t("no number", "নম্বর নেই")}</span>
+                      {bad ? t(` · ${bad} ${bad === 1 ? "error" : "errors"}`, ` · ${bad}টি ত্রুটি`) : ""}{warn ? t(` · ${warn} ${warn === 1 ? "warning" : "warnings"}`, ` · ${warn}টি সতর্কতা`) : ""}
                     </span>
                   </span>
                   <span className="num shrink-0 text-right text-sm">{i.total ?? "-"} <span className="text-xs text-muted">{i.currency}</span></span>
@@ -153,6 +157,7 @@ function Waiting() {
 }
 
 export default function UploadPage() {
+  const { t } = useLang();
   const [rows, setRows] = useState<Row[]>([]);
   const [drag, setDrag] = useState(false);
   const [sending, setSending] = useState(false);
@@ -172,7 +177,7 @@ export default function UploadPage() {
       const res = await api<any[]>("/documents", { method: "POST", body: form });
       setRows((r) => [...res.map((x, i) => ({
         key: `${Date.now()}-${i}`, filename: x.filename, id: x.document_id, status: x.status,
-        error: x.error_message || (x.duplicate_of ? "Already uploaded; showing the existing document." : null),
+        error: x.error_message || (x.duplicate_of ? t("Already uploaded. Showing the earlier copy.", "আগেই আপলোড করা। আগের কপি দেখানো হচ্ছে।") : null),
       })), ...r]);
     } catch (e: any) {
       setErr(e.message);
@@ -185,8 +190,8 @@ export default function UploadPage() {
   return (
     <>
       <div className="mb-6">
-        <h1 className="text-[22px] leading-7 font-semibold tracking-[-0.01em] sm:text-2xl">Upload documents</h1>
-        <p className="mt-1 max-w-2xl text-sm text-muted">Each file is checked, read and validated in the background. Progress shows here page by page.</p>
+        <h1 className="text-[22px] leading-7 font-semibold tracking-[-0.01em] sm:text-2xl">{t("Upload invoices", "ইনভয়েস আপলোড")}</h1>
+        <p className="mt-1 max-w-2xl text-sm text-muted">{t("Add your files. We read and check them, and show the progress here.", "ফাইল দিন। আমরা পড়ে যাচাই করি, আর অগ্রগতি এখানে দেখাই।")}</p>
       </div>
 
       <Pulse />
@@ -203,30 +208,30 @@ export default function UploadPage() {
               drag ? "border-accent bg-warnwash" : "border-control bg-paper")}>
               <UploadCloud size={28} strokeWidth={1.5} className={drag ? "text-accent" : "text-brand"} aria-hidden />
               <div className="min-w-0 flex-1">
-                <p className="text-base font-semibold text-ink">{drag ? "Drop to upload" : "Drop invoices, scans or spreadsheets here"}</p>
-                <p className="mt-1 text-sm text-muted">Several files at once is fine. Large PDFs are split into pages and read in parallel.</p>
-                <p className="mt-3 text-xs text-muted" id="types">Accepts {TYPES.join(", ")}</p>
+                <p className="text-base font-semibold text-ink">{drag ? t("Drop the files here", "এখানে ছেড়ে দিন") : t("Drag invoices, scans or Excel files here", "ইনভয়েস, স্ক্যান বা Excel ফাইল এখানে টেনে আনুন")}</p>
+                <p className="mt-1 text-sm text-muted">{t("You can add many files at once. Big PDFs are read page by page.", "একসাথে অনেক ফাইল দিতে পারেন। বড় PDF পাতা ধরে পড়া হয়।")}</p>
+                <p className="mt-3 text-xs text-muted" id="types">{t("File types", "ফাইলের ধরন")}: {TYPES.join(", ")}</p>
                 <label className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted">
-                  Spreadsheets are
+                  {t("Excel files are", "Excel ফাইলগুলো")}
                   <select value={role} onChange={(e) => setRole(e.target.value)} className="h-8 rounded-md border border-control bg-surface px-2 text-xs text-ink max-sm:h-10">
-                    <option value="auto">detected from their headers</option>
-                    <option value="invoices">lists of invoices to check</option>
-                    <option value="ledger">payment ledgers to reconcile</option>
-                    <option value="purchase_orders">purchase orders to match against</option>
+                    <option value="auto">{t("found out from the headers", "হেডার দেখে বোঝা হবে")}</option>
+                    <option value="invoices">{t("lists of invoices", "ইনভয়েসের তালিকা")}</option>
+                    <option value="ledger">{t("payment records (ledger)", "পেমেন্টের হিসাব (লেজার)")}</option>
+                    <option value="purchase_orders">{t("purchase orders", "ক্রয় আদেশ")}</option>
                   </select>
                 </label>
               </div>
               <Button onClick={() => input.current?.click()} disabled={sending} aria-describedby="types">
-                {sending && <Spinner />} {sending ? "Uploading…" : "Choose files"}
+                {sending && <Spinner />} {sending ? t("Uploading…", "আপলোড হচ্ছে…") : t("Choose files", "ফাইল বাছুন")}
               </Button>
               <input ref={input} type="file" multiple hidden accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff,.xlsx,.xls,.csv"
                 onChange={(e) => e.target.files && send(e.target.files)} />
             </div>
-            <ol className="grid grid-cols-2 gap-px overflow-hidden rounded-b-lg border-t border-line bg-line sm:grid-cols-4" aria-label="What happens to each file">
+            <ol className="grid grid-cols-2 gap-px overflow-hidden rounded-b-lg border-t border-line bg-line sm:grid-cols-4" aria-label={t("What happens to each file", "প্রতিটি ফাইলের কী হয়")}>
               {STEPS.map((s) => (
-                <li key={s.title} className="bg-surface px-4 py-3">
-                  <span className="block text-sm font-medium text-ink">{s.title}</span>
-                  <span className="block text-xs leading-[18px] text-muted">{s.text}</span>
+                <li key={s.title[0]} className="bg-surface px-4 py-3">
+                  <span className="block text-sm font-medium text-ink">{t(s.title[0], s.title[1])}</span>
+                  <span className="block text-xs leading-[18px] text-muted">{t(s.text[0], s.text[1])}</span>
                 </li>
               ))}
             </ol>
@@ -234,9 +239,9 @@ export default function UploadPage() {
 
           {err && <p className="text-sm text-bad" role="alert">{err}</p>}
 
-          <Panel title="This session" meta={rows.length ? `${rows.length} ${rows.length === 1 ? "file" : "files"}` : undefined}>
+          <Panel title={t("Uploaded now", "এখন আপলোড করা")} meta={rows.length ? t(`${rows.length} ${rows.length === 1 ? "file" : "files"}`, `${rows.length}টি ফাইল`) : undefined}>
             {rows.length === 0 ? (
-              <p className="px-4 py-4 text-sm text-muted">Nothing uploaded in this session yet. Run <code className="num rounded bg-rule px-1 text-[13px]">make seed</code> to load the demo batch.</p>
+              <p className="px-4 py-4 text-sm text-muted">{t("No files yet. Choose some above, or open Documents to see the demo files.", "এখনো কোনো ফাইল নেই। উপরে বেছে নিন, অথবা ডকুমেন্টে ডেমো ফাইল দেখুন।")}</p>
             ) : (
               <ul className="divide-y divide-rule">
                 {rows.map((r) => <QueueRow key={r.key} row={r} update={(u) => setRows((all) => all.map((x) => (x.key === r.key ? { ...x, ...u } : x)))} />)}
