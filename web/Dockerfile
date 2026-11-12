@@ -10,7 +10,8 @@ RUN npm run build
 
 FROM node:20-alpine
 WORKDIR /web
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
+# listen on every interface; by default Next binds to the container hostname, which can fail to resolve
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
 COPY --from=build /web/.next/standalone ./
 COPY --from=build /web/.next/static ./.next/static
 USER node

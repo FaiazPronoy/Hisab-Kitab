@@ -51,6 +51,19 @@ if not exist ".env" (
   copy /y ".env.example" ".env" >nul
 )
 
+rem another app on the same ports makes the web or the API fail to start
+for %%p in (3000 8000) do (
+  netstat -ano | findstr /r /c:":%%p .*LISTENING" >nul && (
+    docker ps --filter "publish=%%p" --format "{{.Names}}" | findstr /b /c:"docintel-" >nul || (
+      echo.
+      echo [X] Port %%p is already in use by another program or container.
+      echo     Stop it first: "docker ps" shows what runs, "docker stop" with its name stops it.
+      pause
+      exit /b 1
+    )
+  )
+)
+
 echo [2/5] Building and starting the containers ...
 echo       The first run downloads and builds images, about 10 minutes.
 rem one image at a time is slower but fits in less memory
@@ -77,7 +90,16 @@ rem inside the running api container, so no extra container needs memory
 docker compose exec -T api python -m scripts.seed_demo
 if errorlevel 1 echo       the demo data did not load; the app still runs.
 
-echo [5/5] Ready.
+echo [5/5] Waiting for the web app ...
+for /l %%i in (1,1,40) do (
+  curl -s -o nul http://localhost:3000/login && goto web_ok
+  timeout /t 3 /nobreak >nul
+)
+echo [X] The web app did not answer. Run "docker compose logs web" to see why.
+pause
+exit /b 1
+:web_ok
+echo       Ready.
 echo.
 echo   Open  http://localhost:3000/
 echo.
