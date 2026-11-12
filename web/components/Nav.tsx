@@ -111,9 +111,9 @@ function Me({ session }: { session: Session }) {
         className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md text-xs text-[#cde2de] hover:bg-white/10 hover:text-white max-lg:h-11">
         <Languages size={15} aria-hidden /> {lang === "bn" ? "English" : "বাংলা"}
       </button>
-      <button type="button" onClick={() => setSession(null)}
-        className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md text-xs text-[#cde2de] hover:bg-white/10 hover:text-white max-lg:h-11">
-        <LogOut size={15} aria-hidden /> {t("Sign out", "সাইন আউট")}
+      <button type="button" onClick={() => setSession(null)} title={t("Sign out", "সাইন আউট")} aria-label={t("Sign out", "সাইন আউট")}
+        className="flex h-9 w-10 flex-none items-center justify-center rounded-md text-[#cde2de] hover:bg-white/10 hover:text-white max-lg:h-11 max-lg:w-11">
+        <LogOut size={16} aria-hidden />
       </button>
       </div>
     </div>
