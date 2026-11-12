@@ -306,9 +306,7 @@ def _recheck_po_invoices(db, doc):
     for inv in waiting:
         if po.norm_po(inv.po_number):
             revalidate(db, inv, pages_failed=inv.document.pages_failed)
-            d = inv.document
-            if d.status in ("done", "needs_review"):
-                d.status = "needs_review" if any(i.status == "needs_review" for i in d.invoices) else "done"
+            sync_doc_status(inv.document)
 
 
 def _maybe_map_columns(db, sh):
@@ -526,6 +524,7 @@ def revalidate(db, inv: Invoice, pages_failed: int = 0):
                 [{"severity": v.severity, "rule_code": v.rule_code} for v in other.findings],
                 other_meta, other_pf, other.flags or []
             )
+            sync_doc_status(other.document)
 
     # 2. A duplicate concerns both invoices, whichever arrived first
     for f in findings:
@@ -537,8 +536,15 @@ def revalidate(db, inv: Invoice, pages_failed: int = 0):
                                 related_invoice_id=inv.id))
         if other.status != "approved":
             other.status = "needs_review"
+            sync_doc_status(other.document)
     db.flush()
     return findings
+
+
+def sync_doc_status(doc):
+    """A finished document waits for review while any of its invoices does."""
+    if doc is not None and doc.status in ("done", "needs_review"):
+        doc.status = "needs_review" if any(i.status == "needs_review" for i in doc.invoices) else "done"
 
 
 from sqlalchemy.orm import Session as _SqlAlchemySession  # noqa: E402

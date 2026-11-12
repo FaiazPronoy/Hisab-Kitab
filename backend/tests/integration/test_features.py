@@ -282,3 +282,16 @@ def test_invoices_are_matched_to_purchase_orders(client, H, tmp_path):
     p4, _ = pdf(tmp_path, 103, supplier_name="Order Match Ltd", po_number="PO-7001", currency=ccy)
     twice = invoice(client, H, up(client, H, p4)["document_id"])
     assert "PO_OVER" in {x["rule_code"] for x in twice["findings_list"]}
+
+
+def test_a_later_duplicate_puts_the_first_document_back_in_review(client, H, tmp_path):
+    p, _ = pdf(tmp_path, 110, supplier_name="Twice Sent Ltd")
+    first = up(client, H, p)["document_id"]
+    before = client.get(f"/api/v1/documents/{first}", headers=H).json()
+    copy = p.read_bytes() + b"\n% resent"
+    p2 = tmp_path / "resent.pdf"
+    p2.write_bytes(copy)
+    up(client, H, p2)
+    after = client.get(f"/api/v1/documents/{first}", headers=H).json()
+    assert before["invoices"][0]["status"] != "needs_review" or before["status"] == "needs_review"
+    assert after["invoices"][0]["status"] == "needs_review" and after["status"] == "needs_review"

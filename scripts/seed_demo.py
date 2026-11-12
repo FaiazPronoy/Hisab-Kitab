@@ -50,6 +50,17 @@ def demo_purchase_orders(invs):
 
 
 def main():
+    ensure_user("nadia", "Nadia Rahman", "clerk", "demo-clerk")
+    ensure_user("farhan", "Farhan Hossain", "approver", "demo-approver")
+    api = os.environ.get("API_URL", "http://api:8000/api/v1")
+    h = {"X-API-Key": os.environ.get("API_KEY", "local-dev-key")}
+    # rendered PDFs carry a timestamp, so a second upload would not be caught as a duplicate
+    loaded = {d["filename"] for d in httpx.get(f"{api}/documents?limit=200", headers=h, timeout=30).json()["items"]}
+    if "three_invoices.pdf" in loaded:
+        print("The demo data is already loaded; nothing to upload.")
+        print("demo users: nadia / demo-clerk (clerk), farhan / demo-approver (approver)")
+        return
+
     OUT.mkdir(parents=True, exist_ok=True)
     rng = random.Random(3)
     fake = Faker("en_GB")
@@ -85,11 +96,6 @@ def main():
         encoding="cp1252")
     files.append(csv)
 
-    ensure_user("nadia", "Nadia Rahman", "clerk", "demo-clerk")
-    ensure_user("farhan", "Farhan Hossain", "approver", "demo-approver")
-
-    api = os.environ.get("API_URL", "http://api:8000/api/v1")
-    h = {"X-API-Key": os.environ.get("API_KEY", "local-dev-key")}
     ids = send(api, h, files)
     wait(api, h, ids)
 
