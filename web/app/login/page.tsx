@@ -64,7 +64,7 @@ function Preview() {
 
 function Form() {
   const router = useRouter();
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const next = useSearchParams().get("next") || "/";
   const [user, setUser] = useState("");
   const [pw, setPw] = useState("");
@@ -100,7 +100,12 @@ function Form() {
         <div className="pointer-events-none absolute -bottom-40 -left-24 h-96 w-96 rounded-full bg-[#ff6f59] opacity-15 blur-3xl" aria-hidden />
         <div className="relative flex items-center gap-3"><Mark size={36} /><span className="text-lg font-semibold">Hisab Kitab</span></div>
         <div className="relative my-auto max-w-lg py-10">
-          <h2 className="text-[34px] leading-[42px] font-semibold tracking-[-0.01em]">{t("Read invoices. Check them. Pay them.", "ইনভয়েস পড়ুন। যাচাই করুন। পেমেন্ট দিন।")}</h2>
+          <h2 className="text-[40px] leading-[1.15] font-semibold tracking-[-0.02em] xl:text-[46px]">
+            {(lang === "bn" ? ["ইনভয়েস পড়ুন।", "যাচাই করুন।", "পেমেন্ট দিন।"] : ["Read Invoices.", "Check Them.", "Pay Them."]).map((line, i) => (
+              <span key={line} className={i === 2 ? "block whitespace-nowrap text-[#ff8a78]" : "block whitespace-nowrap"}>{line}</span>
+            ))}
+          </h2>
+          <div className="mt-5 h-1 w-16 rounded-full bg-[#ff6f59]" aria-hidden />
           <p className="mt-3 text-[16px] leading-7 text-[#cde2de]">
             {t("Hisab Kitab reads your invoices, checks every number and pays only what is right.",
               "হিসাব কিতাব আপনার ইনভয়েস পড়ে, প্রতিটি সংখ্যা যাচাই করে, আর শুধু সঠিকগুলোই পেমেন্ট করে।")}
