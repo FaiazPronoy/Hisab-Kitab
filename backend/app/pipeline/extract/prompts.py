@@ -1,6 +1,5 @@
 """Runtime prompts. Bump the version when the wording changes; the version is
-part of the LLM cache key and is logged with every call. PROMPTS.md mirrors
-this file."""
+part of the LLM cache key and is logged with every call."""
 
 EXTRACT_VERSION = "extract-v3"
 EXTRACT_SYSTEM = """You are an extractive parser for business invoices, not a calculator.

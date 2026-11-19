@@ -10,7 +10,7 @@ Every extracted value points to the line it came from on the page. If the system
 | **Type** | Take-home project, solo (not for a course) |
 | **Made by** | Faiaz Abrar Zaman Pronoy |
 | **History** | Built in November 2026: the pipeline in five days, then reviewer roles, supplier memory and payments |
-| **Docs** | [Architecture](docs/architecture.md), [Database schema](docs/schema.md), [API](docs/api.md), [Design decisions](DECISIONS.md), [Evaluation](EVALUATION.md), [Prompts](PROMPTS.md) |
+| **Docs** | [Architecture](docs/architecture.md), [Database schema](docs/schema.md), [API](docs/api.md), [Design decisions](DECISIONS.md), [Evaluation](EVALUATION.md) |
 
 | | |
 |---|---|
@@ -261,7 +261,6 @@ scripts/             demo seed, reviewer accounts, large-file benchmark
 - Invoices longer than 10 pages take their header fields from the first and last two pages.
 - Purchase order matching is two-way (invoice against PO). Goods receipts are not modelled, so it is not a full three-way match.
 - PyMuPDF is AGPL-3.0. A closed deployment would need its commercial licence or a switch to `pypdfium2`, which `pipeline/pdf.py` keeps in one place.
-- AI tools were used during development; see [AI_DISCLOSURE.md](AI_DISCLOSURE.md).
 
 ---
 
